@@ -52,3 +52,153 @@ jobs:
             ~/.nuget/packages
             ~/Library/Caches/NuGet
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+      
+      - name: Verify project directory
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Listing repository root:"
+          ls -la
+          echo "Looking for project path:"
+          ls -la Test/ || echo "Test directory not found"
+          ls -la Test/MyMauiAppIos/ || echo "MyMauiAppIos directory not found"
+      
+      - name: Install MAUI workloads
+        run: |
+          # Ensure the directory exists
+          if [ ! -d "${{ env.PROJECT_PATH }}" ]; then
+            echo "Error: Project directory ${{ env.PROJECT_PATH }} does not exist!"
+            echo "Repository structure:"
+            find . -type d -maxdepth 3
+            exit 1
+          fi
+          
+          # Create global.json in the project folder to fix the SDK version
+          echo '{ "sdk": { "version": "9.0.100", "workloadVersion": "9.0.100", "allowPrerelease": false, "rollForward": "latestFeature" } }' > ${{ env.PROJECT_PATH }}/global.json
+          cd ${{ env.PROJECT_PATH }}
+          dotnet workload config --update-mode workload-set
+          dotnet workload restore
+          dotnet workload install maui-ios
+          dotnet workload list
+      
+      - name: Find .csproj file
+        id: find_csproj
+        run: |
+          CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
+          if [ -z "$CSPROJ_FILE" ]; then
+            echo "Error: No .csproj file found in ${{ env.PROJECT_PATH }}"
+            exit 1
+          fi
+          CSPROJ_NAME=$(basename "$CSPROJ_FILE")
+          APP_NAME="${CSPROJ_NAME%.csproj}"
+          echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "Found project file: $CSPROJ_NAME"
+          echo "App name: $APP_NAME"
+      
+      - name: Restore NuGet packages
+        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: Build iOS app (unsigned)
+        run: |
+          dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
+          -f ${{ env.TARGET_FRAMEWORK }} \
+          -c ${{ env.CONFIGURATION }} \
+          /p:BuildIpa=true \
+          /p:EnableCodeSigning=false \
+          /p:CodesignKey="-" \
+          /p:CodesignProvision="-" \
+          /p:ArchiveOnBuild=true \
+          /p:OptimizePNGs=false \
+          /p:UseAccessorizer=false \
+          /p:MtouchNoFastDev=true \
+          /p:RuntimeIdentifier=ios-arm64 \
+          /p:ActoolComputeOnlySupportedPlatforms=true \
+          /p:SupportedOSPlatformVersion=15.0 \
+          /p:TargetPlatformMinVersion=15.0 \
+          /p:MtouchLink=SdkOnly \
+          /p:UseInterpreter=false
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: List build output
+        run: |
+          echo "=== Build output structure ==="
+          echo "Searching for .app bundles:"
+          find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type d -name "*.app" || echo "No .app bundles found"
+          echo ""
+          echo "Searching for existing .ipa files:"
+          find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type f -name "*.ipa" || echo "No .ipa files found"
+          echo ""
+          echo "Full directory structure:"
+          ls -R ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/
+      
+      - name: Check for auto-generated IPA
+        id: check_ipa
+        run: |
+          IPA_FILE=$(find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type f -name "*.ipa" | head -n 1)
+          if [ -n "$IPA_FILE" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "ipa_path=$IPA_FILE" >> $GITHUB_OUTPUT
+            echo "Found auto-generated IPA at: $IPA_FILE"
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No auto-generated IPA found, will create manually"
+          fi
+      
+      - name: Package unsigned IPA (if needed)
+        if: steps.check_ipa.outputs.found == 'false'
+        run: |
+          # Search for the .app bundle
+          APP_PATH=$(find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }} -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Could not find ${{ steps.find_csproj.outputs.app_name }}.app"
+            echo "Directory contents:"
+            find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }} -type d
+            exit 1
+          fi
+          
+          echo "Found app at: $APP_PATH"
+          
+          # Create Payload directory in a temp location
+          WORK_DIR=$(mktemp -d)
+          echo "Working in temporary directory: $WORK_DIR"
+          
+          mkdir -p "$WORK_DIR/Payload"
+          cp -R "$APP_PATH" "$WORK_DIR/Payload/"
+          
+          # Create IPA
+          cd "$WORK_DIR"
+          zip -qr ${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa Payload
+          
+          # Move to workspace
+          mv ${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa ${{ github.workspace }}/
+          echo "IPA created successfully at: ${{ github.workspace }}/${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa"
+      
+      - name: Copy auto-generated IPA (if exists)
+        if: steps.check_ipa.outputs.found == 'true'
+        run: |
+          cp "${{ steps.check_ipa.outputs.ipa_path }}" ${{ github.workspace }}/${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa
+          echo "Copied auto-generated IPA to workspace"
+      
+      - name: Verify IPA file
+        run: |
+          if [ -f "${{ github.workspace }}/${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa" ]; then
+            echo "IPA file verified:"
+            ls -lh ${{ github.workspace }}/${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa
+            echo ""
+            echo "IPA contents:"
+            unzip -l ${{ github.workspace }}/${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa | head -20
+          else
+            echo "Error: IPA file not found!"
+            exit 1
+          fi
+      
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_csproj.outputs.app_name }}-Unsigned-IPA
+          path: ${{ steps.find_csproj.outputs.app_name }}-Unsigned.ipa
+          if-no-files-found: error
