@@ -4,7 +4,7 @@ on:
 
 env:
   DOTNET_VERSION: '9.0.x'
-  PROJECT_PATH: 'Test/MyMauiAppIos'
+  PROJECT_PATH: 'MyMauiAppIos'
   TARGET_FRAMEWORK: 'net9.0-ios'
   CONFIGURATION: 'Release'
 
@@ -55,25 +55,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
       
-      - name: Verify project directory
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Listing repository root:"
-          ls -la
-          echo "Looking for project path:"
-          ls -la Test/ || echo "Test directory not found"
-          ls -la Test/MyMauiAppIos/ || echo "MyMauiAppIos directory not found"
-      
       - name: Install MAUI workloads
         run: |
-          # Ensure the directory exists
-          if [ ! -d "${{ env.PROJECT_PATH }}" ]; then
-            echo "Error: Project directory ${{ env.PROJECT_PATH }} does not exist!"
-            echo "Repository structure:"
-            find . -type d -maxdepth 3
-            exit 1
-          fi
-          
           # Create global.json in the project folder to fix the SDK version
           echo '{ "sdk": { "version": "9.0.100", "workloadVersion": "9.0.100", "allowPrerelease": false, "rollForward": "latestFeature" } }' > ${{ env.PROJECT_PATH }}/global.json
           cd ${{ env.PROJECT_PATH }}
