@@ -51,6 +51,7 @@ jobs:
             -p:ArchiveOnBuild=true \
             -p:BuildIpa=true \
             -p:EnableCodeSigning=false \
+            -p:UseMauiCoreToolchain=false \
             -p:MtouchLink=SdkOnly \
             -p:MtouchNoFastDev=true \
             -p:UseInterpreter=false \
