@@ -207,9 +207,9 @@ jobs:
           echo "Framework: ${{ env.TARGET_FRAMEWORK }}"
           echo ""
           
-          # Restore only for iOS framework - ignore Android
+          # Use MSBuild property to override TargetFrameworks and build only iOS
           dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
-            /p:TargetFramework=${{ env.TARGET_FRAMEWORK }} \
+            /p:TargetFrameworks=${{ env.TARGET_FRAMEWORK }} \
             --verbosity normal
           
           echo ""
@@ -230,6 +230,7 @@ jobs:
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:${{ env.TARGET_FRAMEWORK }} \
             -c:${{ env.CONFIGURATION }} \
+            -p:TargetFrameworks=${{ env.TARGET_FRAMEWORK }} \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:ArchiveOnBuild=true \
             -p:CodesignKey="-" \
