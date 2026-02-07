@@ -230,7 +230,7 @@ jobs:
           
           # Use MSBuild property to override TargetFrameworks and build only iOS
           dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
-            /p:TargetFrameworks=${{ env.TARGET_FRAMEWORK }} \
+          -p:TargetFrameworks=net9.0-ios
             --verbosity normal
           
           echo ""
@@ -249,8 +249,9 @@ jobs:
           echo ""
           
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
-            -f:${{ env.TARGET_FRAMEWORK }} \
-            -c:${{ env.CONFIGURATION }} \
+            -f:net9.0-ios \
+            -c:Release \
+            -p:TargetFrameworks=net9.0-ios \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
