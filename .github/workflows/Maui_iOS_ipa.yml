@@ -2,7 +2,7 @@ name: Build .NET MAUI iOS
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -20,29 +20,38 @@ jobs:
         dotnet-version: '9.0.x'
         
     - name: Setup Xcode
-      uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: '16.2' # Latest stable with iOS 18 support
+      run: |
+        sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
         
-    - name: Setup Java for Android (if needed)
-      if: false # Set to true if building Android too
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'microsoft'
-        java-version: '17'
+    - name: List files (debug)
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Listing all files:"
+        find . -name "*.csproj" -type f
         
-    - name: Install MAUI Workload
+    - name: Install MAUI Workloads
       run: |
         dotnet workload install maui
         dotnet workload install maui-ios
         dotnet workload list
         
     - name: Restore dependencies
-      run: dotnet restore
-      
-    - name: Build iOS (Debug)
       run: |
-        dotnet build MyMauiAppIos.csproj \
+        # Find the csproj file
+        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
+        if [ -z "$CS_PROJ" ]; then
+          echo "Error: No .csproj file found!"
+          exit 1
+        fi
+        echo "Found project file: $CS_PROJ"
+        dotnet restore "$CS_PROJ"
+        
+    - name: Build iOS
+      run: |
+        # Find the csproj file
+        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
+        echo "Building project: $CS_PROJ"
+        dotnet build "$CS_PROJ" \
           -c:Debug \
           -f:net9.0-ios \
           -p:RuntimeIdentifier=ios-arm64 \
@@ -50,34 +59,16 @@ jobs:
           -p:TreatWarningsAsErrors=false \
           -p:SuppressXcodeTargetsWarnings=true
           
-    - name: Build iOS (Release)
+    - name: Publish iOS
       run: |
-        dotnet build MyMauiAppIos.csproj \
-          -c:Release \
-          -f:net9.0-ios \
-          -p:RuntimeIdentifier=ios-arm64 \
-          -p:BuildIpa=true \
-          -p:TreatWarningsAsErrors=false \
-          -p:SuppressXcodeTargetsWarnings=true
-          
-    - name: Publish iOS (Release)
-      run: |
-        dotnet publish MyMauiAppIos.csproj \
+        # Find the csproj file
+        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
+        echo "Publishing project: $CS_PROJ"
+        dotnet publish "$CS_PROJ" \
           -c:Release \
           -f:net9.0-ios \
           -p:RuntimeIdentifier=ios-arm64 \
           -p:BuildIpa=true \
           -p:TreatWarningsAsErrors=false \
           -p:SuppressXcodeTargetsWarnings=true \
-          --output ./publish/ios
-          
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: ios-build-output
-        path: |
-          **/bin/Release/net9.0-ios/ios-arm64/*.app
-          **/bin/Release/net9.0-ios/ios-arm64/*.ipa
-          ./publish/
-        retention-days: 7
+          --output ./publish
