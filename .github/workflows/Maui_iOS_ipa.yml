@@ -251,24 +251,14 @@ jobs:
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:${{ env.TARGET_FRAMEWORK }} \
             -c:${{ env.CONFIGURATION }} \
-            -p:TargetFrameworks=${{ env.TARGET_FRAMEWORK }} \
             -p:RuntimeIdentifier=ios-arm64 \
-            -p:ArchiveOnBuild=true \
-            -p:CodesignKey="" \
-            -p:CodesignProvision="" \
-            -p:CodesignEntitlements="Platforms/iOS/Entitlements.plist" \
-            -p:EnableCodeSigning=false \
-            -p:_DevelopmentTeam="" \
-             -p:PublishTrimmed=true \
             -p:BuildIpa=true \
+            -p:ArchiveOnBuild=true \
+            -p:EnableCodeSigning=false \
+            -p:CodesignEntitlements=Platforms/iOS/Entitlements.plist \
             -p:MtouchLink=SdkOnly \
-            -p:UseInterpreter=false \
             -p:MtouchNoFastDev=true \
-            -p:SupportedOSPlatformVersion=15.0 \
-            -p:TargetPlatformMinVersion=15.0 \
-            -p:OptimizePNGs=false \
-            -p:UseAccessorizer=false \
-            -p:ActoolComputeOnlySupportedPlatforms=true \
+            -p:PublishTrimmed=false \
             --verbosity normal
           
           echo ""
