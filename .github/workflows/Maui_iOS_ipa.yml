@@ -254,12 +254,12 @@ jobs:
             -p:TargetFrameworks=${{ env.TARGET_FRAMEWORK }} \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:ArchiveOnBuild=true \
-            -p:CodesignKey="-" \
+            -p:CodesignKey="" \
             -p:CodesignProvision="" \
             -p:CodesignEntitlements="Platforms/iOS/Entitlements.plist" \
             -p:EnableCodeSigning=false \
             -p:_DevelopmentTeam="" \
-            -p:BuildIpa=false \
+            -p:BuildIpa=true \
             -p:MtouchLink=SdkOnly \
             -p:UseInterpreter=false \
             -p:MtouchNoFastDev=true \
