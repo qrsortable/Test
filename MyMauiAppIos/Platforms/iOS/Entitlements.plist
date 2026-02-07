@@ -2,31 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Keychain Sharing - REQUIRED for MAUI SecureStorage, Preferences -->
-    <key>keychain-access-groups</key>
-    <array>
-        <string>$(AppIdentifierPrefix)com.companyname.mymauiappios</string>
-    </array>
-    
-    <!-- Get Task Allow - Required for sideloading/debugging -->
     <key>get-task-allow</key>
     <true/>
-    
-    <!-- If your app uses network features, uncomment: -->
-    <!--
-    <key>com.apple.developer.networking.networkextension</key>
-    <array>
-        <string>packet-tunnel-provider</string>
-    </array>
-    -->
-    
-    <!-- If using background modes, uncomment and configure: -->
-    <!--
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>fetch</string>
-        <string>remote-notification</string>
-    </array>
-    -->
-</dict>
+    </dict>
 </plist>
