@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (No Simulator Download)
+name: MAUI iOS IPA Build (Bypass actool)
 on:
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Find and Patch Project
+      - name: 🔍 Find and Force-Patch Project
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
@@ -36,19 +36,22 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           
-          # 🛠 THE COMBO PATCH:
-          # 1. Skip Xcode 26 check
-          # 2. Disable Asset compiler to avoid simulator requirement
-          # 3. Force the project to only see iOS to avoid Android workload errors
+          FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+
+          # 1. Comment out MauiIcon and MauiSplashScreen to stop actool
+          sed -i '' 's/<MauiIcon//g' "$FULL_PATH"
+          sed -i '' 's/<MauiSplashScreen//g' "$FULL_PATH"
+
+          # 2. Inject build bypasses
           sed -i '' '/<\/Project>/i \
           <PropertyGroup>\
             <ValidateXcodeVersion>false</ValidateXcodeVersion>\
             <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
             <MauiSkipResizetize>true</MauiSkipResizetize>\
             <TargetFrameworks>net9.0-ios</TargetFrameworks>\
-          </PropertyGroup>' "${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+          </PropertyGroup>' "$FULL_PATH"
           
-          echo "✅ Patched $CSPROJ_NAME"
+          echo "✅ Asset tags commented out to bypass simulator check."
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -69,6 +72,7 @@ jobs:
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
+            -p:IsSimulatorBuild=false \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
@@ -79,6 +83,7 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
           
+          # Fix executable bit
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
           chmod +x "$APP_PATH/$EXEC_NAME"
           
