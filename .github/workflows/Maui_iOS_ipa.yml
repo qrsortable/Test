@@ -20,9 +20,9 @@ jobs:
         with:
           fetch-depth: 0
       
-      # FIX 1: Use a specific Xcode version known to work with .NET 9
       - name: ⚙️ Set Xcode version
         run: |
+          # 16.1 is the current stable for .NET 9 workloads
           if [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app
           else
@@ -35,39 +35,11 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 💾 Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
-      - name: 📝 Create Entitlements.plist
-        run: |
-          mkdir -p ${{ env.PROJECT_PATH }}/Platforms/iOS
-          cat > ${{ env.PROJECT_PATH }}/Platforms/iOS/Entitlements.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>keychain-access-groups</key>
-              <array>
-                  <string>$(AppIdentifierPrefix)com.companyname.mymauiappios</string>
-              </array>
-              <key>get-task-allow</key>
-              <true/>
-              <key>com.apple.security.network.client</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-
       - name: 📦 Install MAUI workloads
         run: |
           dotnet workload install maui-ios
       
-      - name: 🔍 Find .csproj file
+      - name: 🔍 Find Project File
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
@@ -76,13 +48,15 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
 
-      - name: 📥 Restore NuGet packages (iOS only)
+      - name: 📥 Restore NuGet packages
         run: |
           dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
             -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
       
-      # FIX 2: Enable Trimming and Bypass the Xcode version error
+      # ============================================
+      # THE CRITICAL STEP: Added SkipValidateXcodeVersion
+      # ============================================
       - name: 🔨 Build iOS app
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
@@ -93,11 +67,10 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:CodesignEntitlements=Platforms/iOS/Entitlements.plist \
+            -p:PublishTrimmed=true \
             -p:MtouchLink=SdkOnly \
             -p:MtouchNoFastDev=true \
-            -p:PublishTrimmed=true \
-            -p:MtouchNoWarn=2346 \
+            -p:SkipValidateXcodeVersion=true \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
@@ -108,25 +81,3 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
           echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
-          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
-          chmod +x "$APP_PATH/$EXEC_NAME"
-
-      - name: 📦 Package IPA for Sideloadly
-        id: package_ipa
-        run: |
-          APP_PATH="${{ steps.verify_app.outputs.app_path }}"
-          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
-          PAYLOAD_DIR="$IPA_DIR/Payload"
-          mkdir -p "$PAYLOAD_DIR"
-          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-          IPA_NAME="${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa"
-          cd "$IPA_DIR"
-          zip -qry "$IPA_NAME" Payload -x "*.DS_Store"
-          echo "ipa_size=$(du -h "$IPA_NAME" | cut -f1)" >> $GITHUB_OUTPUT
-
-      - name: 📤 Upload IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.find_csproj.outputs.app_name }}-iOS-Sideloadly
-          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
-          if-no-files-found: error
