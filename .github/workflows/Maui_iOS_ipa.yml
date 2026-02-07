@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (No Simulator)
+name: MAUI iOS IPA Build (No Simulator Download)
 on:
   workflow_dispatch:
 
@@ -34,12 +34,23 @@ jobs:
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
-          echo "csproj_name=$(basename "$CSPROJ_FILE")" >> $GITHUB_OUTPUT
-          echo "app_name=$(basename "$CSPROJ_FILE" .csproj)" >> $GITHUB_OUTPUT
+          CSPROJ_NAME=$(basename "$CSPROJ_FILE")
+          APP_NAME="${CSPROJ_NAME%.csproj}"
+          echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           
-          # Patch to skip Xcode 26 check
+          # 🛠 THE NUCLEAR PATCH:
+          # 1. Skips the Xcode 26 check
+          # 2. Disables the Asset/Icon/Splash compiler (Resizetizer) to avoid actool/simulator error
           sed -i '' '/<\/Project>/i \
-          <PropertyGroup><ValidateXcodeVersion>false</ValidateXcodeVersion><SkipValidateXcodeVersion>true</SkipValidateXcodeVersion></PropertyGroup>' "${{ env.PROJECT_PATH }}/$(basename "$CSPROJ_FILE")"
+          <PropertyGroup>\
+            <ValidateXcodeVersion>false</ValidateXcodeVersion>\
+            <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
+            <ResizetizerBeforeSelf>false</ResizetizerBeforeSelf>\
+            <MauiSkipResizetize>true</MauiSkipResizetize>\
+          </PropertyGroup>' "${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+          
+          echo "✅ Patched $CSPROJ_NAME to bypass actool."
 
       - name: 🔨 Build iOS app
         run: |
@@ -51,7 +62,6 @@ jobs:
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
-            -p:DeviceOnly=true \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
@@ -62,13 +72,14 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
           
-          # Fix executable bit
+          # Fix executable bit (Sideloadly requirement)
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
           chmod +x "$APP_PATH/$EXEC_NAME"
           
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_PATH" "$BUILD_PATH/Payload/"
-          cd "$BUILD_PATH" && zip -qry "${{ steps.find_csproj.outputs.app_name }}.ipa" Payload
+          cd "$BUILD_PATH"
+          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa" Payload
           
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
