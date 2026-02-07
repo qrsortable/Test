@@ -22,19 +22,25 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Clean and Patch Project
+      - name: 🔍 Patch Project to iOS-Only
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
+          FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+          
+          # Force iOS-only target
+          sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
+          
+          echo "✅ Patched to iOS-only"
+          cat "$FULL_PATH" | grep TargetFrameworks
           
           # Clean previous builds
           rm -rf ${{ env.PROJECT_PATH }}/bin ${{ env.PROJECT_PATH }}/obj
       
       - name: 📦 Install MAUI workloads
-        run: |
-          dotnet workload install maui-ios --skip-manifest-update
+        run: dotnet workload install maui-ios --skip-manifest-update
       
       - name: 📥 Restore
         run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
