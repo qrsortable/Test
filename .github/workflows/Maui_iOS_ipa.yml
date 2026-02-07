@@ -1,65 +1,196 @@
-name: Build iOS IPA (.NET 9, iOS 16+, Sideloadly)
-
+name: MAUI iOS Unsigned IPA Build
 on:
   workflow_dispatch:
 
+env:
+  DOTNET_VERSION: '9.0.x'
+  PROJECT_PATH: 'MyMauiAppIos'
+  TARGET_FRAMEWORK: 'net9.0-ios'
+  CONFIGURATION: 'Release'
+
 jobs:
   build-ios:
+    name: 🎉 MAUI iOS Build (Unsigned)
     runs-on: macos-latest
-
+    
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: List available Xcode versions
+        run: ls /Applications | grep Xcode
+      
+      - name: Set Xcode version
+        run: |
+          # Check available Xcode versions and select the most appropriate one
+          if [ -d "/Applications/Xcode_15.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.2.app
+          elif [ -d "/Applications/Xcode_15.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.1.app
+          elif [ -d "/Applications/Xcode_15.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.0.app
+          elif [ -d "/Applications/Xcode_14.3.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_14.3.1.app
+          elif [ -d "/Applications/Xcode_14.3.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_14.3.app
+          else
+            echo "Using default Xcode"
+          fi
+          echo "Selected Xcode path:"
+          xcode-select -p
+          xcodebuild -version
+      
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            ~/Library/Caches/NuGet
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+      
+      - name: Install MAUI workloads
+        run: |
+          # Create global.json in the project folder to fix the SDK version
+          echo '{ "sdk": { "version": "9.0.100", "workloadVersion": "9.0.100", "allowPrerelease": false, "rollForward": "latestFeature" } }' > ${{ env.PROJECT_PATH }}/global.json
+          cd ${{ env.PROJECT_PATH }}
+          dotnet workload config --update-mode workload-set
+          dotnet workload restore
+          dotnet workload install maui-ios
+          dotnet workload list
+      
+      - name: Restore NuGet packages
+        run: dotnet restore MyMauiAppIos.csproj
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: Build iOS app (unsigned)
+        run: |
+          dotnet publish MyMauiAppIos.csproj \
+          -f ${{ env.TARGET_FRAMEWORK }} \
+          -c ${{ env.CONFIGURATION }} \
+          /p:BuildIpa=true \
+          /p:EnableCodeSigning=false \
+          /p:CodesignKey="-" \
+          /p:CodesignProvision="-" \
+          /p:ArchiveOnBuild=true \
+          /p:OptimizePNGs=false \
+          /p:UseAccessorizer=false \
+          /p:MtouchNoFastDev=true \
+          /p:RuntimeIdentifier=ios-arm64 \
+          /p:ActoolComputeOnlySupportedPlatforms=true \
+          /p:SupportedOSPlatformVersion=16.0 \
+          /p:TargetPlatformMinVersion=16.0 \
+          /p:MtouchLink=None \
+          /p:UseInterpreter=false
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: List build output
+        run: |
+          echo "=== Build output structure ==="
+          echo "Searching for .app bundles:"
+          find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type d -name "*.app" || echo "No .app bundles found"
+          echo ""
+          echo "Searching for existing .ipa files:"
+          find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type f -name "*.ipa" || echo "No .ipa files found"
+          echo ""
+          echo "Full directory structure:"
+          ls -R ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/
+      
+      - name: Check for auto-generated IPA
+        id: check_ipa
+        run: |
+          IPA_FILE=$(find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }} -type f -name "*.ipa" | head -n 1)
+          if [ -n "$IPA_FILE" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "ipa_path=$IPA_FILE" >> $GITHUB_OUTPUT
+            echo "Found auto-generated IPA at: $IPA_FILE"
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No auto-generated IPA found, will create manually"
+          fi
+      
+      - name: Package unsigned IPA (if needed)
+        if: steps.check_ipa.outputs.found == 'false'
+        run: |
+          # Search for the .app bundle
+          APP_PATH=$(find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }} -name "MyMauiAppIos.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Could not find MyMauiAppIos.app"
+            echo "Directory contents:"
+            find ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }} -type d
+            exit 1
+          fi
+          
+          echo "Found app at: $APP_PATH"
+          
+          # Create Payload directory in a temp location
+          WORK_DIR=$(mktemp -d)
+          echo "Working in temporary directory: $WORK_DIR"
+          
+          mkdir -p "$WORK_DIR/Payload"
+          cp -R "$APP_PATH" "$WORK_DIR/Payload/"
+          
+          # Create IPA
+          cd "$WORK_DIR"
+          zip -qr MyMauiAppIos-Unsigned.ipa Payload
+          
+          # Move to workspace
+          mv MyMauiAppIos-Unsigned.ipa ${{ github.workspace }}/
+          echo "IPA created successfully at: ${{ github.workspace }}/MyMauiAppIos-Unsigned.ipa"
+      
+      - name: Copy auto-generated IPA (if exists)
+        if: steps.check_ipa.outputs.found == 'true'
+        run: |
+          cp "${{ steps.check_ipa.outputs.ipa_path }}" ${{ github.workspace }}/MyMauiAppIos-Unsigned.ipa
+          echo "Copied auto-generated IPA to workspace"
+      
+      - name: Verify IPA file
+        run: |
+          if [ -f "${{ github.workspace }}/MyMauiAppIos-Unsigned.ipa" ]; then
+            echo "IPA file verified:"
+            ls -lh ${{ github.workspace }}/MyMauiAppIos-Unsigned.ipa
+            echo ""
+            echo "IPA contents:"
+            unzip -l ${{ github.workspace }}/MyMauiAppIos-Unsigned.ipa | head -20
+          else
+            echo "Error: IPA file not found!"
+            exit 1
+          fi
+      
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyMauiAppIos-Unsigned-IPA
+          path: MyMauiAppIos-Unsigned.ipa
+          if-no-files-found: error
+```
 
-    - name: Setup .NET 9
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 9.0.x
+**Key changes made to match your project:**
 
-    - name: Show Xcode info
-      run: |
-        xcodebuild -version
-        xcode-select -p
-        xcodebuild -showsdks
+1. **PROJECT_PATH**: Changed from `'QrSortable'` to `'MyMauiAppIos'`
+2. **Project file name**: Changed from `QrSortable.csproj` to `MyMauiAppIos.csproj`
+3. **App name**: Changed from `QrSortable.app` to `MyMauiAppIos.app`
+4. **IPA name**: Changed to `MyMauiAppIos-Unsigned.ipa`
+5. **SupportedOSPlatformVersion**: Updated to `16.0` to match your Info.plist
+6. **MtouchLink**: Changed to `None` to match your csproj configuration
 
-    - name: Install MAUI workload
-      run: |
-        dotnet workload install maui --skip-manifest-update
-        dotnet workload list
-
-    - name: Restore
-      run: |
-        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
-        if [ -z "$CS_PROJ" ]; then
-          echo "❌ No csproj found"
-          exit 1
-        fi
-        dotnet restore "$CS_PROJ"
-
-    - name: Build unsigned IPA (iOS 16+, net9.0-ios)
-      run: |
-        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
-
-        dotnet publish "$CS_PROJ" \
-          -c Release \
-          -f net9.0-ios \
-          -p:RuntimeIdentifier=ios-arm64 \
-          -p:BuildIpa=true \
-          -p:EnableCodeSigning=false \
-          -p:SupportedOSPlatformVersion=16.0 \
-          -p:TargetPlatformMinVersion=16.0 \
-          -p:MtouchLink=SdkOnly \
-          -p:_SdkVersion=17.5
-
-    - name: Verify IPA output
-      run: |
-        echo "=== IPA files ==="
-        find bin/Release/net9.0-ios/ios-arm64 -name "*.ipa" -type f || exit 1
-
-    - name: Upload IPA artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ios-ipa-sideloadly
-        path: |
-          bin/Release/net9.0-ios/ios-arm64/*.ipa
-        retention-days: 7
+Make sure your project structure looks like this:
+```
+YourRepo/
+├── MyMauiAppIos/
+│   ├── MyMauiAppIos.csproj
+│   ├── Platforms/
+│   │   └── iOS/
+│   │       ├── Info.plist
+│   │       └── Entitlements.plist
+│   └── ... (other files)
+└── .github/
+    └── workflows/
+        └── ios-build.yml
