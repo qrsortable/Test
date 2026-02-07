@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Linker Exclusion)
+name: MAUI iOS IPA Build
 on:
   workflow_dispatch:
 
@@ -10,9 +10,7 @@ env:
 
 jobs:
   build-ios:
-    name: 🍎 Build iOS IPA
     runs-on: macos-latest
-    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -25,18 +23,27 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Find and Patch Project
+      - name: 🔍 Robust Project Patch
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
-          
-          # Force only iOS and clean up assets
+
+          # Force single target to stop Android workload errors
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
+          
+          # Remove assets that trigger simulator-only build tasks
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
+
+          # Inject hard-overrides into the PropertyGroup
+          sed -i '' '/<PropertyGroup>/a \
+          <MtouchLink>SdkOnly</MtouchLink>\
+          <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
+          <ValidateXcodeVersion>false</ValidateXcodeVersion>\
+          <MtouchExtraArgs>--ignore-xcode-version --linkskip=UIKit</MtouchExtraArgs>' "$FULL_PATH"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -45,8 +52,10 @@ jobs:
         run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
 
-      - name: 🔨 Build and Publish iOS app
+      - name: 🔨 Build and Publish
         run: |
+          # We use -p:_XcodeVersion to trick the SDK into thinking Xcode 26 is present
+          # We use --verbosity quiet to prevent the log buffer from hanging
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -54,32 +63,30 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:MtouchLink=None \
-            -p:MtouchUseRegistrar=Static \
-            -p:MtouchExtraArgs="--ignore-xcode-version --linkskip=UIKit --nosymbolstrip" \
             -p:PublishTrimmed=true \
             -p:TrimMode=partial \
             -p:_XcodeVersion=26.0 \
-            -p:ValidateXcodeVersion=false \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: 📦 Final Packaging
+      - name: 📦 IPA Creation
         if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
-          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
-          chmod +x "$APP_FOLDER/$EXEC_NAME"
+          
+          # Fix the executable bit - without this, the app won't launch
+          chmod +x "$APP_FOLDER/$(basename "${APP_FOLDER%.app}")"
+          
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
-          zip -qry "App-Sideload.ipa" Payload
+          zip -qry "Sideload-Ready.ipa" Payload
 
-      - name: 📤 Upload IPA
+      - name: 📤 Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Maui-iOS-IPA
-          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
+          name: Maui-iOS-App
+          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/Sideload-Ready.ipa
