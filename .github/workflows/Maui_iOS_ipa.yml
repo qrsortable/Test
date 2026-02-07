@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Force Version)
+name: MAUI iOS IPA Build (Linker Exclusion)
 on:
   workflow_dispatch:
 
@@ -32,7 +32,8 @@ jobs:
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
-          # Clean up for CI
+          
+          # Force only iOS and clean up assets
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
@@ -55,10 +56,9 @@ jobs:
             -p:EnableCodeSigning=false \
             -p:MtouchLink=None \
             -p:MtouchUseRegistrar=Static \
-            -p:MtouchExtraArgs="--ignore-xcode-version" \
+            -p:MtouchExtraArgs="--ignore-xcode-version --linkskip=UIKit --nosymbolstrip" \
             -p:PublishTrimmed=true \
             -p:TrimMode=partial \
-            -p:MtouchTargetSdk=18.1 \
             -p:_XcodeVersion=26.0 \
             -p:ValidateXcodeVersion=false \
             --verbosity quiet
@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
-          zip -qry "MyApp.ipa" Payload
+          zip -qry "App-Sideload.ipa" Payload
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
