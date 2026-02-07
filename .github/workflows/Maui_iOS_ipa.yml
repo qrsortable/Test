@@ -53,4 +53,98 @@ jobs:
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
-          CSPROJ_NAME=$(basename "$CSPROJ_F
+          CSPROJ_NAME=$(basename "$CSPROJ_FILE")
+          echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
+          FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+          
+          # 1. Force single target (Stops Android workload error)
+          sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
+          
+          # 2. Inject Bypass Properties
+          # Use MtouchLink=None to disable aggressive trimming while keeping PublishTrimmed=true
+          sed -i '' '/<PropertyGroup>/a \
+          <MtouchLink>None</MtouchLink>\
+          <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
+          <MtouchExtraArgs>--ignore-xcode-version</MtouchExtraArgs>\
+          <ValidateXcodeVersion>false</ValidateXcodeVersion>\
+          <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
+          
+          # 3. Fix the Info.plist copy warning
+          sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
+          
+          echo "Patched .csproj content:"
+          cat "$FULL_PATH"
+      
+      - name: 📦 Install MAUI workloads
+        run: dotnet workload install maui-ios
+      
+      - name: 📥 Restore
+        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} -p:TargetFrameworks=net9.0-ios
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: 🔨 Build and Publish
+        run: |
+          # Get iOS SDK version
+          IOS_SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "Using iOS SDK version: $IOS_SDK_VERSION"
+          
+          dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
+            -f:net9.0-ios \
+            -c:Release \
+            -p:RuntimeIdentifier=ios-arm64 \
+            -p:BuildIpa=true \
+            -p:ArchiveOnBuild=true \
+            -p:EnableCodeSigning=false \
+            -p:PublishTrimmed=true \
+            -p:TrimMode=partial \
+            -p:MtouchLink=None \
+            -p:MauiSkipResizetize=true \
+            --verbosity normal
+        working-directory: ${{ env.PROJECT_PATH }}
+      
+      - name: 📦 Final Packaging
+        if: success()
+        run: |
+          BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
+          
+          # Find the publish directory
+          PUBLISH_DIR=$(find "$BUILD_PATH" -type d -name "publish" | head -n 1)
+          if [ -z "$PUBLISH_DIR" ]; then
+            echo "Publish directory not found, searching in build path..."
+            PUBLISH_DIR="$BUILD_PATH"
+          fi
+          
+          APP_FOLDER=$(find "$PUBLISH_DIR" -name "*.app" -type d | head -n 1)
+          
+          if [ -z "$APP_FOLDER" ]; then
+            echo "Error: No .app folder found"
+            echo "Contents of build path:"
+            ls -R "$BUILD_PATH"
+            exit 1
+          fi
+          
+          echo "Found app: $APP_FOLDER"
+          
+          # Fix the executable bit so the app doesn't crash on open
+          APP_NAME=$(basename "${APP_FOLDER%.app}")
+          chmod +x "$APP_FOLDER/$APP_NAME"
+          
+          # Create IPA structure
+          IPA_DIR="$BUILD_PATH/ipa-build"
+          mkdir -p "$IPA_DIR/Payload"
+          cp -R "$APP_FOLDER" "$IPA_DIR/Payload/"
+          
+          cd "$IPA_DIR"
+          zip -qry "Sideload-Ready.ipa" Payload
+          
+          # Move to standard location
+          mv "Sideload-Ready.ipa" "$BUILD_PATH/"
+          
+          echo "IPA created successfully"
+          ls -lh "$BUILD_PATH/Sideload-Ready.ipa"
+      
+      - name: 📤 Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maui-iOS-App
+          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/Sideload-Ready.ipa
