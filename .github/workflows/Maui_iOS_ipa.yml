@@ -11,74 +11,37 @@ env:
 
 jobs:
   build-ios:
-    runs-on: macos-14  # Use macos-14 for better Xcode compatibility
+    runs-on: macos-14
     
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-      
-      - name: 🔍 List Available Xcode Versions
-        run: |
-          echo "Available Xcode versions:"
-          ls -la /Applications/ | grep Xcode
-      
-      - name: ⚙️ Set Xcode version
-        run: |
-          # Use Xcode 16.1 or latest stable
-          if [ -d "/Applications/Xcode_16.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app
-          else
-            echo "Using default Xcode"
-          fi
-          
-          echo "Selected Xcode:"
-          xcode-select -p
-          xcrun --sdk iphoneos --show-sdk-version
       
       - name: 🔷 Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Fix MAUI Version and Patch Project
+      - name: 🔍 Clean and Patch Project
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
-          FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
           
-          # 1. Fix MAUI Version (CRITICAL FIX)
-          sed -i '' 's|<MauiVersion>9.0.40</MauiVersion>|<MauiVersion>9.0.10</MauiVersion>|g' "$FULL_PATH"
-          
-          # 2. Force single target
-          sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
-          
-          # 3. Inject Bypass Properties
-          sed -i '' '/<PropertyGroup>/a \
-          <MtouchLink>None</MtouchLink>\
-          <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
-          <MtouchExtraArgs>--ignore-xcode-version</MtouchExtraArgs>\
-          <ValidateXcodeVersion>false</ValidateXcodeVersion>\
-          <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
-          
-          # 4. Fix Info.plist copy warning
-          sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
-          
-          echo "✅ Project file patched"
+          # Clean previous builds
+          rm -rf ${{ env.PROJECT_PATH }}/bin ${{ env.PROJECT_PATH }}/obj
       
       - name: 📦 Install MAUI workloads
-        run: dotnet workload install maui-ios
+        run: |
+          dotnet workload install maui-ios --skip-manifest-update
       
       - name: 📥 Restore
-        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} -p:TargetFrameworks=net9.0-ios
+        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
         working-directory: ${{ env.PROJECT_PATH }}
       
       - name: 🔨 Build and Publish
         run: |
-          IOS_SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
-          echo "Using iOS SDK version: $IOS_SDK_VERSION"
-          
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -89,7 +52,6 @@ jobs:
             -p:PublishTrimmed=true \
             -p:TrimMode=partial \
             -p:MtouchLink=None \
-            -p:MauiSkipResizetize=true \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
       
@@ -106,7 +68,7 @@ jobs:
           APP_FOLDER=$(find "$PUBLISH_DIR" -name "*.app" -type d | head -n 1)
           
           if [ -z "$APP_FOLDER" ]; then
-            echo "❌ Error: No .app folder found"
+            echo "❌ No .app folder found"
             exit 1
           fi
           
