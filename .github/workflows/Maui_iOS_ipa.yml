@@ -92,7 +92,9 @@ jobs:
             -p:CodesignEntitlements=Platforms/iOS/Entitlements.plist \
             -p:MtouchLink=SdkOnly \
             -p:MtouchNoFastDev=true \
-            -p:PublishTrimmed=false
+            -p:PublishTrimmed=true \
+            --verbosity normal
+            
         working-directory: ${{ env.PROJECT_PATH }}
 
       - name: ✅ Verify .app bundle
