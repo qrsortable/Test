@@ -10,13 +10,17 @@ env:
 
 jobs:
   build-ios:
+    name: 🍎 Build iOS IPA
     runs-on: macos-latest
+    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
       - name: ⚙️ Set Xcode version
-        run: sudo xcode-select -s /Applications/Xcode_16.1.app
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.1.app
+          xcodebuild -version
 
       - name: 🔷 Setup .NET
         uses: actions/setup-dotnet@v4
@@ -31,13 +35,14 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # 1. Strip MauiIcon/Splash which causes Mac-local resizetizer errors
+          # 1. Strip MauiIcon/Splash to bypass simulator/resizetizer errors
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
 
-          # 2. Inject Compatibility Properties
-          # We force MtouchTargetSdk to 18.0 to prevent the MT4162 error
-          # We force the Plist metadata to BundleResource to fix the copy warning
+          # 2. FORCE ONLY iOS (Fixes NETSDK1147 Android Workload error)
+          sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
+
+          # 3. Inject Compatibility Properties (Fixes MT4162 UIKit error)
           sed -i '' '/<PropertyGroup>/a \
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
@@ -46,18 +51,23 @@ jobs:
           <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
           <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
           
-          # Fix the Info.plist reference
+          # 4. Fix Info.plist metadata warning
           sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
+          
+          echo "✅ Applied patches to $CSPROJ_NAME"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
       
-      - name: 📥 Restore
-        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
+      - name: 📥 Restore NuGet packages
+        run: |
+          dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
+            -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
 
-      - name: 🔨 Build and Publish
+      - name: 🔨 Build and Publish iOS app
         run: |
+          # Quiet verbosity is used to prevent GitHub log buffer freezes
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -71,20 +81,26 @@ jobs:
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: 📦 Final Packaging
+      - name: 📦 Final Packaging for Sideloadly
         if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
+          
+          # Force binary executable permissions (CRITICAL for sideloading)
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
           chmod +x "$APP_FOLDER/$EXEC_NAME"
+          
+          # Manually package into IPA
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
           zip -qry "MyMauiApp-Sideload.ipa" Payload
+          
+          echo "✅ IPA created: $BUILD_PATH/MyMauiApp-Sideload.ipa"
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Maui-iOS-IPA
+          name: Maui-iOS-Sideload-IPA
           path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
