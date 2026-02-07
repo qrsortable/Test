@@ -58,19 +58,21 @@ jobs:
       
       - name: 🔨 Build iOS app
         run: |
-          dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
-            -f:net9.0-ios \
-            -c:Release \
-            -p:TargetFrameworks=net9.0-ios \
-            -p:RuntimeIdentifier=ios-arm64 \
-            -p:BuildIpa=true \
-            -p:ArchiveOnBuild=true \
-            -p:EnableCodeSigning=false \
-            -p:PublishTrimmed=true \
-            -p:MtouchLink=SdkOnly \
-            -p:MtouchNoFastDev=true \
-            -p:MtouchExtraArgs="--ignore-xcode-version" \
-            --verbosity normal
+         dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
+          -f:net9.0-ios \
+          -c:Release \
+          -p:TargetFrameworks=net9.0-ios \
+          -p:RuntimeIdentifier=ios-arm64 \
+          -p:BuildIpa=true \
+          -p:ArchiveOnBuild=true \
+          -p:EnableCodeSigning=false \
+          -p:PublishTrimmed=true \
+          -p:MtouchLink=SdkOnly \
+          -p:MtouchNoFastDev=true \
+          -p:MtouchExtraArgs="--ignore-xcode-version" \
+          -p:IsSimulatorBuild=false \
+          -p:CanHaveSimulatorTargets=false \
+          --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
