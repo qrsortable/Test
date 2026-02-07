@@ -1,10 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFrameworks>net9.0-android;net9.0-ios</TargetFrameworks>
 		<RootNamespace>MyMauiAppIos</RootNamespace>
 		<UseMaui>true</UseMaui>
-		 <MauiVersion>9.0.10</MauiVersion>
 		<OutputType Condition="'$(TargetFramework)' == 'net9.0-ios'">Exe</OutputType>
 		<OutputType Condition="'$(TargetFramework)' == 'net9.0-android'">Exe</OutputType>
 		<OutputType Condition="'$(TargetFramework)' == 'net9.0'">Library</OutputType>
@@ -25,7 +24,6 @@
 		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
 		<ApplicationVersion>1</ApplicationVersion>
 
-	<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
@@ -33,42 +31,38 @@
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)' == 'DebugEmulator'">
-        <AndroidSupportedOSVersion>21</AndroidSupportedOSVersion>
-    </PropertyGroup>
-
-    <PropertyGroup Condition="'$(Configuration)' == 'DebugDevice'">
-        <AndroidSupportedOSVersion>21.0</AndroidSupportedOSVersion>
-    </PropertyGroup>
-
-	<!-- iOS Platform Configuration - CRITICAL FOR iOS 16 COMPATIBILITY & SIDELOADING -->
-	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
-	    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
-	    <BuildIpa>true</BuildIpa>
-	    <MtouchLink>SdkOnly</MtouchLink>
-	    <UseInterpreter>false</UseInterpreter>
-	    <EnableCodeSigning>false</EnableCodeSigning>
-	    <CodesignEntitlements>Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+		<AndroidSupportedOSVersion>21</AndroidSupportedOSVersion>
 	</PropertyGroup>
 
-	<!-- iOS Release Configuration - FOR SIDELOADING -->
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
+	<PropertyGroup Condition="'$(Configuration)' == 'DebugDevice'">
+		<AndroidSupportedOSVersion>21.0</AndroidSupportedOSVersion>
+	</PropertyGroup>
 
-    <!-- DO NOT TRIM until app boots -->
-    <PublishTrimmed>true</PublishTrimmed>
+	<!-- iOS Platform Configuration -->
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+		<RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
+		<BuildIpa>true</BuildIpa>
+		<MtouchLink>None</MtouchLink>
+		<UseInterpreter>false</UseInterpreter>
+		<EnableCodeSigning>false</EnableCodeSigning>
+		<CodesignEntitlements>Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+		<MtouchUseRegistrar>Static</MtouchUseRegistrar>
+		<ValidateXcodeVersion>false</ValidateXcodeVersion>
+	</PropertyGroup>
 
-    <!-- Avoid aggressive optimizations -->
-    <MtouchUseLlvm>false</MtouchUseLlvm>
-    <MtouchEnableBitcode>false</MtouchEnableBitcode>
-
-    <!-- Stability -->
-    <MtouchNoFastDev>true</MtouchNoFastDev>
-  </PropertyGroup>
+	<!-- iOS Release Configuration -->
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
+		<PublishTrimmed>true</PublishTrimmed>
+		<TrimMode>partial</TrimMode>
+		<MtouchUseLlvm>false</MtouchUseLlvm>
+		<MtouchEnableBitcode>false</MtouchEnableBitcode>
+		<MtouchNoFastDev>true</MtouchNoFastDev>
+	</PropertyGroup>
 
 	<!-- iOS Debug Configuration -->
 	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Debug'">
 		<OptimizePNGs>false</OptimizePNGs>
-		<!-- Use SdkOnly for debug too -->
-		<MtouchLink>SdkOnly</MtouchLink>
+		<MtouchLink>None</MtouchLink>
 	</PropertyGroup>
 	
 	<PropertyGroup>
@@ -91,24 +85,21 @@
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
 
-		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<!-- Raw Assets -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<!-- CRITICAL: Pin to compatible versions -->
+		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.10" />
+		<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.10" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
 	</ItemGroup>
 
-  <!-- ========================================================= -->
-  <!-- iOS platform files                                        -->
-  <!-- ========================================================= -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
-    <None Include="Platforms\iOS\Info.plist"
-          CopyToOutputDirectory="PreserveNewest" />
-
-    <None Include="Platforms\iOS\Entitlements.plist"
-          CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+	<!-- iOS platform files -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+		<BundleResource Include="Platforms\iOS\Info.plist" Link="Info.plist" />
+		<None Include="Platforms\iOS\Entitlements.plist" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
 
 </Project>
