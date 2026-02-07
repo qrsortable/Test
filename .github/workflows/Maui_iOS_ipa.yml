@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Final Bypass)
+name: MAUI iOS IPA Build (Force Version)
 on:
   workflow_dispatch:
 
@@ -32,7 +32,7 @@ jobs:
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
-          # Force only iOS target to avoid Android workload errors
+          # Clean up for CI
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
@@ -59,6 +59,8 @@ jobs:
             -p:PublishTrimmed=true \
             -p:TrimMode=partial \
             -p:MtouchTargetSdk=18.1 \
+            -p:_XcodeVersion=26.0 \
+            -p:ValidateXcodeVersion=false \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
