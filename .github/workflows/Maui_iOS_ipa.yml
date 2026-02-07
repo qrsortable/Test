@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Linker Bypass)
+name: MAUI iOS IPA Build (Final Fix)
 on:
   workflow_dispatch:
 
@@ -27,7 +27,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Find and Patch Project (Fix MSB4067)
+      - name: 🔍 Find and Patch Project
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
@@ -37,16 +37,25 @@ jobs:
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # Remove Icon/Splash to bypass simulator check
+          # 1. Clean up problematic assets to bypass simulator-only tasks
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
 
-          # Inject Bypass properties
+          # 2. Inject Compatibility Properties
+          # We force MtouchTargetSdk to 18.0 to kill the MT4162 error
           sed -i '' '/<PropertyGroup>/a \
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
+          <MtouchTargetSdk>18.0</MtouchTargetSdk>\
+          <MtouchLink>SdkOnly</MtouchLink>\
+          <MtouchExtraArgs>--ignore-xcode-version</MtouchExtraArgs>\
           <MauiSkipResizetize>true</MauiSkipResizetize>\
           <TargetFrameworks>net9.0-ios</TargetFrameworks>' "$FULL_PATH"
+          
+          # 3. Fix the "PublishFolderType" warning for Info.plist
+          sed -i '' 's|<None Include="Platforms\\iOS\\Info.plist" />|<BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist" />|g' "$FULL_PATH"
+          
+          echo "✅ Applied precision patch to $CSPROJ_NAME"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -59,7 +68,6 @@ jobs:
 
       - name: 🔨 Build and Publish iOS app
         run: |
-          # We disable Trimming and Linking to avoid the UIKit symbol errors (MT4162)
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -67,10 +75,6 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:MtouchExtraArgs="--ignore-xcode-version" \
-            -p:PublishTrimmed=true \
-            -p:MtouchLink=None \
-            -p:TrimMode=partial \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
@@ -82,12 +86,18 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
           
-          # Fix binary permissions
+          # Ensure the binary is executable
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
           chmod +x "$APP_FOLDER/$EXEC_NAME"
           
-          # Manual IPA creation
+          # Create IPA structure
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
-          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideload
+          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideload.ipa" Payload
+
+      - name: 📤 Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_csproj.outputs.app_name }}-IPA
+          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
