@@ -259,6 +259,7 @@ jobs:
             -p:CodesignEntitlements="Platforms/iOS/Entitlements.plist" \
             -p:EnableCodeSigning=false \
             -p:_DevelopmentTeam="" \
+             -p:PublishTrimmed=true \
             -p:BuildIpa=true \
             -p:MtouchLink=SdkOnly \
             -p:UseInterpreter=false \
