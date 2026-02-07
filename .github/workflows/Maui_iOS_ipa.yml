@@ -11,7 +11,7 @@ env:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-14  # Use macos-14 for better Xcode compatibility
     
     steps:
       - name: 📥 Checkout code
@@ -21,21 +21,12 @@ jobs:
         run: |
           echo "Available Xcode versions:"
           ls -la /Applications/ | grep Xcode
-          echo "---"
-          echo "Current Xcode:"
-          xcode-select -p
       
       - name: ⚙️ Set Xcode version
         run: |
-          # Try different Xcode versions in order of preference
-          if [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app
-          elif [ -d "/Applications/Xcode_15.2.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.2.app
-          elif [ -d "/Applications/Xcode_15.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.1.app
-          elif [ -d "/Applications/Xcode_15.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.0.app
+          # Use Xcode 16.1 or latest stable
+          if [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app
           else
             echo "Using default Xcode"
           fi
@@ -49,7 +40,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 🔍 Robust Project Patch
+      - name: 🔍 Fix MAUI Version and Patch Project
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
@@ -57,11 +48,13 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
           
-          # 1. Force single target (Stops Android workload error)
+          # 1. Fix MAUI Version (CRITICAL FIX)
+          sed -i '' 's|<MauiVersion>9.0.40</MauiVersion>|<MauiVersion>9.0.10</MauiVersion>|g' "$FULL_PATH"
+          
+          # 2. Force single target
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
           
-          # 2. Inject Bypass Properties
-          # Use MtouchLink=None to disable aggressive trimming while keeping PublishTrimmed=true
+          # 3. Inject Bypass Properties
           sed -i '' '/<PropertyGroup>/a \
           <MtouchLink>None</MtouchLink>\
           <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
@@ -69,11 +62,10 @@ jobs:
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
           
-          # 3. Fix the Info.plist copy warning
+          # 4. Fix Info.plist copy warning
           sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
           
-          echo "Patched .csproj content:"
-          cat "$FULL_PATH"
+          echo "✅ Project file patched"
       
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -84,7 +76,6 @@ jobs:
       
       - name: 🔨 Build and Publish
         run: |
-          # Get iOS SDK version
           IOS_SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
           echo "Using iOS SDK version: $IOS_SDK_VERSION"
           
@@ -107,40 +98,32 @@ jobs:
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           
-          # Find the publish directory
           PUBLISH_DIR=$(find "$BUILD_PATH" -type d -name "publish" | head -n 1)
           if [ -z "$PUBLISH_DIR" ]; then
-            echo "Publish directory not found, searching in build path..."
             PUBLISH_DIR="$BUILD_PATH"
           fi
           
           APP_FOLDER=$(find "$PUBLISH_DIR" -name "*.app" -type d | head -n 1)
           
           if [ -z "$APP_FOLDER" ]; then
-            echo "Error: No .app folder found"
-            echo "Contents of build path:"
-            ls -R "$BUILD_PATH"
+            echo "❌ Error: No .app folder found"
             exit 1
           fi
           
-          echo "Found app: $APP_FOLDER"
+          echo "✅ Found app: $APP_FOLDER"
           
-          # Fix the executable bit so the app doesn't crash on open
           APP_NAME=$(basename "${APP_FOLDER%.app}")
           chmod +x "$APP_FOLDER/$APP_NAME"
           
-          # Create IPA structure
           IPA_DIR="$BUILD_PATH/ipa-build"
           mkdir -p "$IPA_DIR/Payload"
           cp -R "$APP_FOLDER" "$IPA_DIR/Payload/"
           
           cd "$IPA_DIR"
           zip -qry "Sideload-Ready.ipa" Payload
-          
-          # Move to standard location
           mv "Sideload-Ready.ipa" "$BUILD_PATH/"
           
-          echo "IPA created successfully"
+          echo "✅ IPA created successfully"
           ls -lh "$BUILD_PATH/Sideload-Ready.ipa"
       
       - name: 📤 Upload
