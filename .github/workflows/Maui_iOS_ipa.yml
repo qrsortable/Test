@@ -79,24 +79,7 @@ jobs:
         fi
         echo "✅ Found project file: $CS_PROJ"
         dotnet restore "$CS_PROJ"
-        
-    - name: Build iOS (Debug)
-      run: |
-        # Find the csproj file
-        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
-        echo "Building project: $CS_PROJ"
-        
-        # Try building without IPA first
-        dotnet build "$CS_PROJ" \
-          -c:Debug \
-          -f:net9.0-ios \
-          -p:RuntimeIdentifier=ios-arm64 \
-          -p:TreatWarningsAsErrors=false \
-          -p:SuppressXcodeTargetsWarnings=true \
-          -p:UseMonoRuntime=true \
-          -p:MtouchLink=SdkOnly \
-          -p:MtouchExtraArgs=--verbose
-          
+      
     - name: Build iOS (Release)
       run: |
         # Find the csproj file
