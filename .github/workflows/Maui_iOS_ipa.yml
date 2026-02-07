@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Sideloadly Compatible)
+name: MAUI iOS IPA Build (No Simulator)
 on:
   workflow_dispatch:
 
@@ -10,9 +10,8 @@ env:
 
 jobs:
   build-ios:
-    name: 🍎 Build iOS IPA for Sideloadly
+    name: 🍎 Build iOS IPA
     runs-on: macos-latest
-    timeout-minutes: 90 # Increased for SDK download
     
     steps:
       - name: 📥 Checkout code
@@ -23,88 +22,56 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_16.1.app
           xcodebuild -version
 
-      # FIX: This installs the missing iOS 18+ runtimes that actool is crying about
-      - name: 🛠 Install iOS Platform SDK
-        run: |
-          xcrun xcodebuild -downloadPlatform iOS
-
-      - name: 🔷 Setup .NET ${{ env.DOTNET_VERSION }}
+      - name: 🔷 Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 📦 Install MAUI workloads
-        run: |
-          dotnet workload install maui-ios
+      - name: 📦 Install Workloads
+        run: dotnet workload install maui-ios
       
-      - name: 🔍 Find and Patch Project File
+      - name: 🔍 Find and Patch Project
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
-          CSPROJ_NAME=$(basename "$CSPROJ_FILE")
-          APP_NAME="${CSPROJ_NAME%.csproj}"
+          echo "csproj_name=$(basename "$CSPROJ_FILE")" >> $GITHUB_OUTPUT
+          echo "app_name=$(basename "$CSPROJ_FILE" .csproj)" >> $GITHUB_OUTPUT
           
-          echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-
-          # 🛠 Injecting bypasses directly into the XML
-          # This handles the hallucinated "Xcode 26" error.
+          # Patch to skip Xcode 26 check
           sed -i '' '/<\/Project>/i \
-          <PropertyGroup><ValidateXcodeVersion>false</ValidateXcodeVersion><SkipValidateXcodeVersion>true</SkipValidateXcodeVersion></PropertyGroup>' "${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
-          
-          echo "✅ Patched $CSPROJ_NAME"
+          <PropertyGroup><ValidateXcodeVersion>false</ValidateXcodeVersion><SkipValidateXcodeVersion>true</SkipValidateXcodeVersion></PropertyGroup>' "${{ env.PROJECT_PATH }}/$(basename "$CSPROJ_FILE")"
 
-      - name: 📥 Restore NuGet packages
-        run: |
-          dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
-            -p:TargetFrameworks=net9.0-ios
-        working-directory: ${{ env.PROJECT_PATH }}
-      
       - name: 🔨 Build iOS app
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
-            -p:TargetFrameworks=net9.0-ios \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:PublishTrimmed=true \
-            -p:MtouchLink=SdkOnly \
-            -p:MtouchNoFastDev=true \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
+            -p:DeviceOnly=true \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: ✅ Verify and Fix Permissions
-        id: verify_app
+      - name: 📦 Package for Sideloadly
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
-          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
           
-          # Crucial for Sideloadly: ensure binary is executable
+          # Fix executable bit
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
           chmod +x "$APP_PATH/$EXEC_NAME"
-
-      - name: 📦 Package IPA for Sideloadly
-        run: |
-          APP_PATH="${{ steps.verify_app.outputs.app_path }}"
-          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
-          PAYLOAD_DIR="$IPA_DIR/Payload"
           
-          mkdir -p "$PAYLOAD_DIR"
-          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+          mkdir -p "$BUILD_PATH/Payload"
+          cp -R "$APP_PATH" "$BUILD_PATH/Payload/"
+          cd "$BUILD_PATH" && zip -qry "${{ steps.find_csproj.outputs.app_name }}.ipa" Payload
           
-          IPA_NAME="${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa"
-          cd "$IPA_DIR"
-          zip -qry "$IPA_NAME" Payload -x "*.DS_Store"
-
-      - name: 📤 Upload IPA artifact
+      - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.find_csproj.outputs.app_name }}-iOS-Sideloadly
+          name: ${{ steps.find_csproj.outputs.app_name }}-IPA
           path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
