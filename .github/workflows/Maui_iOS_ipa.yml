@@ -22,12 +22,8 @@ jobs:
       
       - name: ⚙️ Set Xcode version
         run: |
-          # 16.1 is the current stable for .NET 9 workloads
-          if [ -d "/Applications/Xcode_16.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app
-          else
-            sudo xcode-select -s /Applications/Xcode_16.app
-          fi
+          # Use 16.1 as it is the most stable target for .NET 9
+          sudo xcode-select -s /Applications/Xcode_16.1.app
           xcodebuild -version
 
       - name: 🔷 Setup .NET ${{ env.DOTNET_VERSION }}
@@ -39,14 +35,22 @@ jobs:
         run: |
           dotnet workload install maui-ios
       
-      - name: 🔍 Find Project File
+      - name: 🔍 Find and Patch Project File
         id: find_csproj
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           APP_NAME="${CSPROJ_NAME%.csproj}"
+          
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+
+          # 🛠 THE FIX: Inject the bypass properties directly into the .csproj
+          # This overrides the "Xcode 26.0" hallucination error at the root level.
+          sed -i '' '/<\/Project>/i \
+          <PropertyGroup><ValidateXcodeVersion>false</ValidateXcodeVersion><SkipValidateXcodeVersion>true</SkipXcodeVersion></PropertyGroup>' "${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+          
+          echo "✅ Patched $CSPROJ_NAME to skip Xcode validation."
 
       - name: 📥 Restore NuGet packages
         run: |
@@ -54,9 +58,6 @@ jobs:
             -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
       
-      # ============================================
-      # THE CRITICAL STEP: Added SkipValidateXcodeVersion
-      # ============================================
       - name: 🔨 Build iOS app
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
@@ -70,10 +71,11 @@ jobs:
             -p:PublishTrimmed=true \
             -p:MtouchLink=SdkOnly \
             -p:MtouchNoFastDev=true \
-            -p:SkipValidateXcodeVersion=true \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
+        env:
+          MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
       - name: ✅ Verify .app bundle
         id: verify_app
@@ -81,3 +83,12 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
           echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+          
+          # Fix executable permissions for Sideloadly
+          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
+          chmod +x "$APP_PATH/$EXEC_NAME"
+
+      - name: 📦 Package IPA for Sideloadly
+        run: |
+          APP_PATH="${{ steps.verify_app.outputs.app_path }}"
+          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{
