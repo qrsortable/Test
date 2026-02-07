@@ -157,11 +157,12 @@ jobs:
       # ============================================
       - name: 📦 Install MAUI workloads
         run: |
-          echo "📦 Installing .NET MAUI workloads..."
+          echo "📦 Installing .NET MAUI iOS workload..."
           
           cd ${{ env.PROJECT_PATH }}
           
-          # Install MAUI iOS workload
+          # Install only iOS workload - we're building iOS only
+          echo "Installing maui-ios workload..."
           dotnet workload install maui-ios --skip-manifest-update
           
           echo ""
@@ -200,13 +201,18 @@ jobs:
       # ============================================
       # STEP 8: Restore NuGet Packages
       # ============================================
-      - name: 📥 Restore NuGet packages
+      - name: 📥 Restore NuGet packages (iOS only)
         run: |
-          echo "📥 Restoring NuGet packages..."
+          echo "📥 Restoring NuGet packages for iOS framework only..."
+          echo "Framework: ${{ env.TARGET_FRAMEWORK }}"
+          echo ""
           
+          # Restore only for iOS framework - ignore Android
           dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
+            /p:TargetFramework=${{ env.TARGET_FRAMEWORK }} \
             --verbosity normal
           
+          echo ""
           echo "✅ Restore completed!"
         working-directory: ${{ env.PROJECT_PATH }}
       
