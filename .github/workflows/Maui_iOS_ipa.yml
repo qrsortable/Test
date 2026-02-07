@@ -1,4 +1,5 @@
 name: MAUI iOS IPA Build
+
 on:
   workflow_dispatch:
 
@@ -11,13 +12,14 @@ env:
 jobs:
   build-ios:
     runs-on: macos-latest
+    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
-
+      
       - name: ⚙️ Set Xcode version
-        run: sudo xcode-select -s /Applications/Xcode_16.1.app
-
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+      
       - name: 🔷 Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -30,12 +32,11 @@ jobs:
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
-
+          
           # 1. Force single target (Stops Android workload error)
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
           
           # 2. Inject Bypass Properties
-          # We force the Static Registrar and tell the linker to SKIP UIKit validation
           sed -i '' '/<PropertyGroup>/a \
           <MtouchLink>SdkOnly</MtouchLink>\
           <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
@@ -45,14 +46,14 @@ jobs:
           
           # 3. Fix the Info.plist copy warning
           sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
-
+      
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
       
       - name: 📥 Restore
         run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
-
+      
       - name: 🔨 Build and Publish
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
@@ -64,12 +65,13 @@ jobs:
             -p:EnableCodeSigning=false \
             -p:PublishTrimmed=true \
             -p:TrimMode=partial \
-            -p:_XcodeVersion=26.0 \
-            --verbosity quiet
+            -p:_XcodeVersion=15.4 \
+            -p:MauiSkipResizetize=true \
+            --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
-          MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
-
+          MD_APPLE_SDK_ROOT: /Applications/Xcode_15.4.app
+      
       - name: 📦 Final Packaging
         if: success()
         run: |
@@ -83,7 +85,7 @@ jobs:
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
           zip -qry "Sideload-Ready.ipa" Payload
-
+      
       - name: 📤 Upload
         uses: actions/upload-artifact@v4
         with:
