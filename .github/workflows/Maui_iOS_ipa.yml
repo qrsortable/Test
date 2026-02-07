@@ -265,8 +265,6 @@ jobs:
             -p:MtouchNoFastDev=true \
             -p:SupportedOSPlatformVersion=15.0 \
             -p:TargetPlatformMinVersion=15.0 \
-            -p:PublishTrimmed=true \
-            -p:TrimMode=partial \
             -p:OptimizePNGs=false \
             -p:UseAccessorizer=false \
             -p:ActoolComputeOnlySupportedPlatforms=true \
@@ -382,154 +380,7 @@ jobs:
           
           echo ""
           echo "✅ App bundle verification complete!"
-      
-      # ============================================
-      # STEP 12: Package IPA
-      # ============================================
-      - name: 📦 Package IPA for Sideloadly
-        id: package_ipa
-        run: |
-          echo "📦 Creating IPA package..."
-          
-          APP_PATH="${{ steps.verify_app.outputs.app_path }}"
-          IPA_NAME="${{ steps.find_csproj.outputs.app_name }}-Sideloadly"
-          
-          # Create temporary working directory
-          WORK_DIR=$(mktemp -d)
-          echo "📁 Working directory: $WORK_DIR"
-          
-          # Create Payload directory
-          mkdir -p "$WORK_DIR/Payload"
-          
-          echo "📋 Copying app bundle..."
-          # Copy app bundle preserving all attributes, permissions, and symlinks
-          cp -Rp "$APP_PATH" "$WORK_DIR/Payload/"
-          
-          # Verify copy
-          if [ ! -d "$WORK_DIR/Payload/${{ steps.find_csproj.outputs.app_name }}.app" ]; then
-            echo "❌ Error: Failed to copy app bundle"
-            exit 1
-          fi
-          
-          echo "✅ App bundle copied successfully"
-          
-          # Create IPA (zip archive)
-          echo "🗜️ Creating IPA archive..."
-          cd "$WORK_DIR"
-          zip -qry "$IPA_NAME.ipa" Payload
-          
-          if [ ! -f "$IPA_NAME.ipa" ]; then
-            echo "❌ Error: Failed to create IPA"
-            exit 1
-          fi
-          
-          echo "✅ IPA archive created"
-          
-          # Move to workspace
-          IPA_PATH="${{ github.workspace }}/$IPA_NAME.ipa"
-          mv "$IPA_NAME.ipa" "$IPA_PATH"
-          
-          # Get file size
-          IPA_SIZE=$(du -h "$IPA_PATH" | cut -f1)
-          IPA_SIZE_BYTES=$(stat -f%z "$IPA_PATH" 2>/dev/null || stat -c%s "$IPA_PATH" 2>/dev/null)
-          
-          echo ""
-          echo "✅ IPA created successfully!"
-          echo "   📍 Path: $IPA_PATH"
-          echo "   📊 Size: $IPA_SIZE ($IPA_SIZE_BYTES bytes)"
-          
-          # Set outputs
-          echo "ipa_path=$IPA_PATH" >> $GITHUB_OUTPUT
-          echo "ipa_name=$IPA_NAME.ipa" >> $GITHUB_OUTPUT
-          echo "ipa_size=$IPA_SIZE" >> $GITHUB_OUTPUT
-          
-          # Cleanup temp directory
-          rm -rf "$WORK_DIR"
-          echo "🧹 Cleaned up temporary files"
-      
-      # ============================================
-      # STEP 13: Verify IPA Structure
-      # ============================================
-      - name: 🔍 Verify IPA structure
-        run: |
-          IPA_FILE="${{ steps.package_ipa.outputs.ipa_path }}"
-          
-          echo "🔍 Verifying IPA structure..."
-          echo "📄 File: $IPA_FILE"
-          echo ""
-          
-          # Check if IPA exists
-          if [ ! -f "$IPA_FILE" ]; then
-            echo "❌ Error: IPA file not found!"
-            exit 1
-          fi
-          
-          # List IPA contents (first 50 lines)
-          echo "📋 IPA Contents (top 50 entries):"
-          echo "────────────────────────────────────────"
-          unzip -l "$IPA_FILE" | head -50
-          echo "────────────────────────────────────────"
-          echo ""
-          
-          # Extract and verify Info.plist
-          echo "📱 Extracting Info.plist for verification..."
-          TEMP_DIR=$(mktemp -d)
-          unzip -q "$IPA_FILE" "Payload/*.app/Info.plist" -d "$TEMP_DIR" 2>/dev/null || true
-          
-          INFO_PLIST=$(find "$TEMP_DIR/Payload" -name "Info.plist" | head -n 1)
-          
-          if [ -f "$INFO_PLIST" ]; then
-            echo "✅ Info.plist verified:"
-            echo ""
-            BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "Unknown")
-            BUNDLE_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO_PLIST" 2>/dev/null || echo "Unknown")
-            BUNDLE_DISPLAY=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO_PLIST" 2>/dev/null || echo "$BUNDLE_NAME")
-            VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST" 2>/dev/null || echo "Unknown")
-            BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST" 2>/dev/null || echo "Unknown")
-            MIN_IOS=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$INFO_PLIST" 2>/dev/null || echo "Unknown")
-            
-            echo "   Bundle ID: $BUNDLE_ID"
-            echo "   Bundle Name: $BUNDLE_NAME"
-            echo "   Display Name: $BUNDLE_DISPLAY"
-            echo "   Version: $VERSION (Build $BUILD)"
-            echo "   Minimum iOS: $MIN_IOS"
-            echo ""
-            
-            # Verify Payload structure
-            PAYLOAD_CONTENTS=$(unzip -l "$IPA_FILE" | grep "Payload/" | wc -l)
-            echo "✅ Payload contains $PAYLOAD_CONTENTS items"
-            
-            # Check for common required files
-            echo ""
-            echo "🔍 Checking for required files:"
-            
-            if unzip -l "$IPA_FILE" | grep -q "Payload/.*\.app/Info.plist"; then
-              echo "   ✅ Info.plist"
-            else
-              echo "   ❌ Info.plist missing"
-            fi
-            
-            if unzip -l "$IPA_FILE" | grep -q "Payload/.*\.app/$BUNDLE_NAME"; then
-              echo "   ✅ Main executable"
-            else
-              echo "   ⚠️ Main executable check inconclusive"
-            fi
-            
-            if unzip -l "$IPA_FILE" | grep -q "Payload/.*\.app/.*\.dll"; then
-              echo "   ✅ .NET assemblies"
-            else
-              echo "   ⚠️ No .NET assemblies found (unexpected for MAUI)"
-            fi
-            
-          else
-            echo "⚠️ Warning: Could not verify Info.plist"
-          fi
-          
-          # Cleanup
-          rm -rf "$TEMP_DIR"
-          
-          echo ""
-          echo "✅ IPA verification complete!"
+    
       
       # ============================================
       # STEP 14: Generate Installation Instructions
@@ -849,7 +700,7 @@ jobs:
         with:
           name: ${{ steps.find_csproj.outputs.app_name }}-iOS-Sideloadly
           path: |
-            ${{ steps.package_ipa.outputs.ipa_path }}
+            ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
             ${{ github.workspace }}/SIDELOAD_INSTRUCTIONS.md
             ${{ github.workspace }}/QUICK_START.txt
           if-no-files-found: error
@@ -863,8 +714,13 @@ jobs:
         run: |
           echo "# 🎉 iOS Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f "${{ steps.package_ipa.outputs.ipa_path }}" ]; then
+      
+          IPA_PATH=$(ls ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa 2>/dev/null | head -n 1)
+      
+          if [ -f "$IPA_PATH" ]; then
+            IPA_NAME=$(basename "$IPA_PATH")
+            IPA_SIZE=$(du -h "$IPA_PATH" | cut -f1)
+      
             echo "## ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 📦 Artifact Information" >> $GITHUB_STEP_SUMMARY
@@ -872,13 +728,13 @@ jobs:
             echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
             echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
             echo "| **App Name** | ${{ steps.find_csproj.outputs.app_name }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| **IPA File** | ${{ steps.package_ipa.outputs.ipa_name }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| **File Size** | ${{ steps.package_ipa.outputs.ipa_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| **IPA File** | $IPA_NAME |" >> $GITHUB_STEP_SUMMARY
+            echo "| **File Size** | $IPA_SIZE |" >> $GITHUB_STEP_SUMMARY
             echo "| **Target iOS** | 15.0+ |" >> $GITHUB_STEP_SUMMARY
             echo "| **Architecture** | arm64 |" >> $GITHUB_STEP_SUMMARY
             echo "| **Framework** | ${{ env.TARGET_FRAMEWORK }} |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
+      
             echo "### 📥 Download Instructions" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "1. Go to the **Actions** tab" >> $GITHUB_STEP_SUMMARY
@@ -887,7 +743,7 @@ jobs:
             echo "4. Download **${{ steps.find_csproj.outputs.app_name }}-iOS-Sideloadly**" >> $GITHUB_STEP_SUMMARY
             echo "5. Extract the ZIP file" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
+      
             echo "### 🚀 Installation Steps" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "1. Download [Sideloadly](https://sideloadly.io/)" >> $GITHUB_STEP_SUMMARY
@@ -898,13 +754,13 @@ jobs:
             echo "5. Enter Apple ID and click Start" >> $GITHUB_STEP_SUMMARY
             echo "6. Trust certificate in Settings → General → VPN & Device Management" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
+      
             echo "### 📖 Documentation Included" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ **SIDELOAD_INSTRUCTIONS.md** - Detailed installation guide" >> $GITHUB_STEP_SUMMARY
             echo "- ✅ **QUICK_START.txt** - Quick reference guide" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
+      
             echo "### ⚠️ Important Notes" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "- Free Apple ID: Apps expire every **7 days**" >> $GITHUB_STEP_SUMMARY
@@ -912,7 +768,7 @@ jobs:
             echo "- Maximum apps: **3** (free account)" >> $GITHUB_STEP_SUMMARY
             echo "- Minimum iOS version: **15.0**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
+      
             echo "### 🆘 Troubleshooting" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**App crashes on launch?**" >> $GITHUB_STEP_SUMMARY
@@ -924,13 +780,12 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Need detailed help?**" >> $GITHUB_STEP_SUMMARY
             echo "- Read the included SIDELOAD_INSTRUCTIONS.md file" >> $GITHUB_STEP_SUMMARY
-            
           else
             echo "## ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "The IPA file was not created. Check the logs above for errors." >> $GITHUB_STEP_SUMMARY
           fi
-          
+      
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -941,6 +796,10 @@ jobs:
       # ============================================
       - name: ✅ Build complete
         run: |
+          IPA_PATH=$(ls ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa 2>/dev/null | head -n 1)
+          IPA_NAME=$(basename "$IPA_PATH" 2>/dev/null || echo "Generated by MSBuild (*.ipa)")
+          IPA_SIZE=$(du -h "$IPA_PATH" 2>/dev/null | cut -f1 || echo "See artifact")
+      
           echo ""
           echo "╔════════════════════════════════════════════════════════════════╗"
           echo "║                                                                ║"
@@ -949,8 +808,8 @@ jobs:
           echo "╚════════════════════════════════════════════════════════════════╝"
           echo ""
           echo "📱 App Name: ${{ steps.find_csproj.outputs.app_name }}"
-          echo "📦 IPA File: ${{ steps.package_ipa.outputs.ipa_name }}"
-          echo "📊 File Size: ${{ steps.package_ipa.outputs.ipa_size }}"
+          echo "📦 IPA File: $IPA_NAME"
+          echo "📊 File Size: $IPA_SIZE"
           echo ""
           echo "📥 Download the artifact from the Actions tab"
           echo "📖 Read SIDELOAD_INSTRUCTIONS.md for installation help"
