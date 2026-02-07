@@ -27,9 +27,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
-      - name: 📦 Install Workloads
-        run: dotnet workload install maui-ios
-      
       - name: 🔍 Find and Patch Project
         id: find_csproj
         run: |
@@ -39,18 +36,28 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           
-          # 🛠 THE NUCLEAR PATCH:
-          # 1. Skips the Xcode 26 check
-          # 2. Disables the Asset/Icon/Splash compiler (Resizetizer) to avoid actool/simulator error
+          # 🛠 THE COMBO PATCH:
+          # 1. Skip Xcode 26 check
+          # 2. Disable Asset compiler to avoid simulator requirement
+          # 3. Force the project to only see iOS to avoid Android workload errors
           sed -i '' '/<\/Project>/i \
           <PropertyGroup>\
             <ValidateXcodeVersion>false</ValidateXcodeVersion>\
             <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
-            <ResizetizerBeforeSelf>false</ResizetizerBeforeSelf>\
             <MauiSkipResizetize>true</MauiSkipResizetize>\
+            <TargetFrameworks>net9.0-ios</TargetFrameworks>\
           </PropertyGroup>' "${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
           
-          echo "✅ Patched $CSPROJ_NAME to bypass actool."
+          echo "✅ Patched $CSPROJ_NAME"
+
+      - name: 📦 Install MAUI workloads
+        run: dotnet workload install maui-ios
+      
+      - name: 📥 Restore NuGet packages
+        run: |
+          dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
+            -p:TargetFrameworks=net9.0-ios
+        working-directory: ${{ env.PROJECT_PATH }}
 
       - name: 🔨 Build iOS app
         run: |
@@ -72,7 +79,6 @@ jobs:
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
           
-          # Fix executable bit (Sideloadly requirement)
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
           chmod +x "$APP_PATH/$EXEC_NAME"
           
