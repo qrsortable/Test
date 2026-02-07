@@ -170,27 +170,3 @@ jobs:
           name: MyMauiAppIos-Unsigned-IPA
           path: MyMauiAppIos-Unsigned.ipa
           if-no-files-found: error
-```
-
-**Key changes made to match your project:**
-
-1. **PROJECT_PATH**: Changed from `'QrSortable'` to `'MyMauiAppIos'`
-2. **Project file name**: Changed from `QrSortable.csproj` to `MyMauiAppIos.csproj`
-3. **App name**: Changed from `QrSortable.app` to `MyMauiAppIos.app`
-4. **IPA name**: Changed to `MyMauiAppIos-Unsigned.ipa`
-5. **SupportedOSPlatformVersion**: Updated to `16.0` to match your Info.plist
-6. **MtouchLink**: Changed to `None` to match your csproj configuration
-
-Make sure your project structure looks like this:
-```
-YourRepo/
-├── MyMauiAppIos/
-│   ├── MyMauiAppIos.csproj
-│   ├── Platforms/
-│   │   └── iOS/
-│   │       ├── Info.plist
-│   │       └── Entitlements.plist
-│   └── ... (other files)
-└── .github/
-    └── workflows/
-        └── ios-build.yml
