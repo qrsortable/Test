@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOTNET_VERSION: '9.0.x'
+  DOTNET_VERSION: '9.0.100'
   PROJECT_PATH: 'MyMauiAppIos'
   TARGET_FRAMEWORK: 'net9.0-ios'
   CONFIGURATION: 'Release'
@@ -71,7 +71,12 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
       
       - name: ℹ️ Display .NET info
-        run: dotnet --info
+        run: |
+          echo "📋 .NET SDK Information:"
+          dotnet --info
+          echo ""
+          echo "📦 .NET SDK Version:"
+          dotnet --version
       
       # ============================================
       # STEP 4: Cache NuGet Packages
@@ -160,6 +165,22 @@ jobs:
           echo "📦 Installing .NET MAUI iOS workload..."
           
           cd ${{ env.PROJECT_PATH }}
+          
+          # Create global.json to lock .NET SDK version and prevent auto-upgrade
+          echo "Creating global.json to lock SDK version..."
+          cat > global.json << 'EOF'
+          {
+            "sdk": {
+              "version": "9.0.100",
+              "rollForward": "latestFeature",
+              "allowPrerelease": false
+            }
+          }
+          EOF
+          
+          echo "✅ global.json created"
+          cat global.json
+          echo ""
           
           # Install only iOS workload - we're building iOS only
           echo "Installing maui-ios workload..."
