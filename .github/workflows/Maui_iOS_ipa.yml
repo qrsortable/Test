@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build
+name: MAUI iOS IPA Build (Linker Bypass)
 on:
   workflow_dispatch:
 
@@ -19,7 +19,6 @@ jobs:
 
       - name: ⚙️ Set Xcode version
         run: |
-          # Use Xcode 16.1 for .NET 9 compatibility
           sudo xcode-select -s /Applications/Xcode_16.1.app
           xcodebuild -version
 
@@ -31,29 +30,23 @@ jobs:
       - name: 🔍 Find and Patch Project (Fix MSB4067)
         id: find_csproj
         run: |
-          # Locate the .csproj file automatically
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
           APP_NAME="${CSPROJ_NAME%.csproj}"
-          
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-          
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # 1. Remove Asset/Splash tags that trigger the simulator requirement
+          # Remove Icon/Splash to bypass simulator check
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
 
-          # 2. Inject Bypass properties into the first PropertyGroup
-          # This forces net9.0-ios and skips the Xcode version check
+          # Inject Bypass properties
           sed -i '' '/<PropertyGroup>/a \
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
           <MauiSkipResizetize>true</MauiSkipResizetize>\
           <TargetFrameworks>net9.0-ios</TargetFrameworks>' "$FULL_PATH"
-          
-          echo "✅ Patched $CSPROJ_NAME for CI build"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -66,7 +59,7 @@ jobs:
 
       - name: 🔨 Build and Publish iOS app
         run: |
-          # 'quiet' verbosity prevents log buffer hangs during heavy AOT compilation
+          # We disable Trimming and Linking to avoid the UIKit symbol errors (MT4162)
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -74,9 +67,9 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:MtouchExtraArgs="--ignore-xcode-version" \
-            -p:PublishTrimmed=true \
-            -p:MtouchLink=SdkOnly \
+            -p:MtouchExtraArgs="--ignore-xcode-version --linkskip=UIKit" \
+            -p:PublishTrimmed=false \
+            -p:MtouchLink=None \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
@@ -86,24 +79,14 @@ jobs:
         if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
-          
-          # Find the actual compiled .app folder
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
           
-          # Fix the executable permissions so the app actually opens
+          # Fix binary permissions
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
           chmod +x "$APP_FOLDER/$EXEC_NAME"
           
-          # Manually zip into IPA structure (Payload folder)
+          # Manual IPA creation
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
-          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideload-Ready.ipa" Payload
-          
-          echo "✅ IPA created at: $BUILD_PATH/${{ steps.find_csproj.outputs.app_name }}-Sideload-Ready.ipa"
-
-      - name: 📤 Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.find_csproj.outputs.app_name }}-IPA
-          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
+          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideload
