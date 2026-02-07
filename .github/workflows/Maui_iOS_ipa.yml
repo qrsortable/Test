@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (Final Fix)
+name: MAUI iOS IPA Build
 on:
   workflow_dispatch:
 
@@ -10,17 +10,13 @@ env:
 
 jobs:
   build-ios:
-    name: 🍎 Build iOS IPA
     runs-on: macos-latest
-    
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
       - name: ⚙️ Set Xcode version
-        run: |
-          sudo xcode-select -s /Applications/Xcode_16.1.app
-          xcodebuild -version
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app
 
       - name: 🔷 Setup .NET
         uses: actions/setup-dotnet@v4
@@ -32,41 +28,35 @@ jobs:
         run: |
           CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
           CSPROJ_NAME=$(basename "$CSPROJ_FILE")
-          APP_NAME="${CSPROJ_NAME%.csproj}"
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # 1. Clean up problematic assets to bypass simulator-only tasks
+          # 1. Strip MauiIcon/Splash which causes Mac-local resizetizer errors
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
 
           # 2. Inject Compatibility Properties
-          # We force MtouchTargetSdk to 18.0 to kill the MT4162 error
+          # We force MtouchTargetSdk to 18.0 to prevent the MT4162 error
+          # We force the Plist metadata to BundleResource to fix the copy warning
           sed -i '' '/<PropertyGroup>/a \
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
           <MtouchTargetSdk>18.0</MtouchTargetSdk>\
           <MtouchLink>SdkOnly</MtouchLink>\
-          <MtouchExtraArgs>--ignore-xcode-version</MtouchExtraArgs>\
-          <MauiSkipResizetize>true</MauiSkipResizetize>\
-          <TargetFrameworks>net9.0-ios</TargetFrameworks>' "$FULL_PATH"
+          <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
+          <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
           
-          # 3. Fix the "PublishFolderType" warning for Info.plist
-          sed -i '' 's|<None Include="Platforms\\iOS\\Info.plist" />|<BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist" />|g' "$FULL_PATH"
-          
-          echo "✅ Applied precision patch to $CSPROJ_NAME"
+          # Fix the Info.plist reference
+          sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
       
-      - name: 📥 Restore NuGet packages
-        run: |
-          dotnet restore ${{ steps.find_csproj.outputs.csproj_name }} \
-            -p:TargetFrameworks=net9.0-ios
+      - name: 📥 Restore
+        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
         working-directory: ${{ env.PROJECT_PATH }}
 
-      - name: 🔨 Build and Publish iOS app
+      - name: 🔨 Build and Publish
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
@@ -75,29 +65,26 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
+            -p:MtouchExtraArgs="--ignore-xcode-version" \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: 📦 Final Packaging for Sideloadly
+      - name: 📦 Final Packaging
         if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
-          
-          # Ensure the binary is executable
           EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
           chmod +x "$APP_FOLDER/$EXEC_NAME"
-          
-          # Create IPA structure
           mkdir -p "$BUILD_PATH/Payload"
           cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
           cd "$BUILD_PATH"
-          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideload.ipa" Payload
+          zip -qry "MyMauiApp-Sideload.ipa" Payload
 
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.find_csproj.outputs.app_name }}-IPA
+          name: Maui-iOS-IPA
           path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
