@@ -41,21 +41,14 @@
     </PropertyGroup>
 
 	<!-- iOS Platform Configuration - CRITICAL FOR iOS 16 COMPATIBILITY & SIDELOADING -->
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
-    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
-
-    <!-- REQUIRED for sideloading -->
-    <BuildIpa>true</BuildIpa>
-
-    <!-- Safe defaults -->
-    <MtouchLink>SdkOnly</MtouchLink>
-    <UseInterpreter>false</UseInterpreter>
-
-    <!-- Let Sideloadly re-sign -->
-    <EnableCodeSigning>false</EnableCodeSigning>
-
-    <TargetPlatformMinVersion>15.0</TargetPlatformMinVersion>
-  </PropertyGroup>
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+	    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
+	    <BuildIpa>true</BuildIpa>
+	    <MtouchLink>SdkOnly</MtouchLink>
+	    <UseInterpreter>false</UseInterpreter>
+	    <EnableCodeSigning>false</EnableCodeSigning>
+	    <CodesignEntitlements>Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+	</PropertyGroup>
 
 	<!-- iOS Release Configuration - FOR SIDELOADING -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
