@@ -1,101 +1,83 @@
-name: MAUI iOS IPA Build
+name: Build .NET MAUI iOS
 
 on:
-  workflow_dispatch:
-
-env:
-  DOTNET_VERSION: '9.0.100'
-  PROJECT_PATH: 'MyMauiAppIos'
-  TARGET_FRAMEWORK: 'net9.0-ios'
-  CONFIGURATION: 'Release'
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    runs-on: macos-latest
     
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
       
-      - name: 🔷 Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+        
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: '16.2' # Latest stable with iOS 18 support
+        
+    - name: Setup Java for Android (if needed)
+      if: false # Set to true if building Android too
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'microsoft'
+        java-version: '17'
+        
+    - name: Install MAUI Workload
+      run: |
+        dotnet workload install maui
+        dotnet workload install maui-ios
+        dotnet workload list
+        
+    - name: Restore dependencies
+      run: dotnet restore
       
-      - name: 🔍 Patch Project to iOS-Only
-        id: find_csproj
-        run: |
-          CSPROJ_FILE=$(find ${{ env.PROJECT_PATH }} -maxdepth 1 -name "*.csproj" | head -n 1)
-          CSPROJ_NAME=$(basename "$CSPROJ_FILE")
-          echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
-          FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
+    - name: Build iOS (Debug)
+      run: |
+        dotnet build MyMauiAppIos.csproj \
+          -c:Debug \
+          -f:net9.0-ios \
+          -p:RuntimeIdentifier=ios-arm64 \
+          -p:BuildIpa=true \
+          -p:TreatWarningsAsErrors=false \
+          -p:SuppressXcodeTargetsWarnings=true
           
-          # Force iOS-only target
-          sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
+    - name: Build iOS (Release)
+      run: |
+        dotnet build MyMauiAppIos.csproj \
+          -c:Release \
+          -f:net9.0-ios \
+          -p:RuntimeIdentifier=ios-arm64 \
+          -p:BuildIpa=true \
+          -p:TreatWarningsAsErrors=false \
+          -p:SuppressXcodeTargetsWarnings=true
           
-          echo "✅ Patched to iOS-only"
-          cat "$FULL_PATH" | grep TargetFrameworks
+    - name: Publish iOS (Release)
+      run: |
+        dotnet publish MyMauiAppIos.csproj \
+          -c:Release \
+          -f:net9.0-ios \
+          -p:RuntimeIdentifier=ios-arm64 \
+          -p:BuildIpa=true \
+          -p:TreatWarningsAsErrors=false \
+          -p:SuppressXcodeTargetsWarnings=true \
+          --output ./publish/ios
           
-          # Clean previous builds
-          rm -rf ${{ env.PROJECT_PATH }}/bin ${{ env.PROJECT_PATH }}/obj
-      
-      - name: 📦 Install MAUI workloads
-        run: dotnet workload install maui-ios --skip-manifest-update
-      
-      - name: 📥 Restore
-        run: dotnet restore ${{ steps.find_csproj.outputs.csproj_name }}
-        working-directory: ${{ env.PROJECT_PATH }}
-      
-      - name: 🔨 Build and Publish
-        run: |
-          dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
-            -f:net9.0-ios \
-            -c:Release \
-            -p:RuntimeIdentifier=ios-arm64 \
-            -p:BuildIpa=true \
-            -p:ArchiveOnBuild=true \
-            -p:EnableCodeSigning=false \
-            -p:PublishTrimmed=true \
-            -p:TrimMode=partial \
-            -p:MtouchLink=None \
-            --verbosity normal
-        working-directory: ${{ env.PROJECT_PATH }}
-      
-      - name: 📦 Final Packaging
-        if: success()
-        run: |
-          BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
-          
-          PUBLISH_DIR=$(find "$BUILD_PATH" -type d -name "publish" | head -n 1)
-          if [ -z "$PUBLISH_DIR" ]; then
-            PUBLISH_DIR="$BUILD_PATH"
-          fi
-          
-          APP_FOLDER=$(find "$PUBLISH_DIR" -name "*.app" -type d | head -n 1)
-          
-          if [ -z "$APP_FOLDER" ]; then
-            echo "❌ No .app folder found"
-            exit 1
-          fi
-          
-          echo "✅ Found app: $APP_FOLDER"
-          
-          APP_NAME=$(basename "${APP_FOLDER%.app}")
-          chmod +x "$APP_FOLDER/$APP_NAME"
-          
-          IPA_DIR="$BUILD_PATH/ipa-build"
-          mkdir -p "$IPA_DIR/Payload"
-          cp -R "$APP_FOLDER" "$IPA_DIR/Payload/"
-          
-          cd "$IPA_DIR"
-          zip -qry "Sideload-Ready.ipa" Payload
-          mv "Sideload-Ready.ipa" "$BUILD_PATH/"
-          
-          echo "✅ IPA created successfully"
-          ls -lh "$BUILD_PATH/Sideload-Ready.ipa"
-      
-      - name: 📤 Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: Maui-iOS-App
-          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/Sideload-Ready.ipa
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ios-build-output
+        path: |
+          **/bin/Release/net9.0-ios/ios-arm64/*.app
+          **/bin/Release/net9.0-ios/ios-arm64/*.ipa
+          ./publish/
+        retention-days: 7
