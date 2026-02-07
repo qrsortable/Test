@@ -1,4 +1,4 @@
-name: MAUI iOS IPA Build (XML Fix)
+name: MAUI iOS IPA Build (Success Version)
 on:
   workflow_dispatch:
 
@@ -37,16 +37,18 @@ jobs:
           echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # Remove Icon/Splash to bypass actool/simulator requirement
+          # 1. Cleanly remove Icon/Splash to avoid actool error
           sed -i '' '/<MauiIcon/d' "$FULL_PATH"
           sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
 
-          # Inject bypasses into the first PropertyGroup
+          # 2. Inject Bypass and Framework properties
           sed -i '' '/<PropertyGroup>/a \
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
           <SkipValidateXcodeVersion>true</SkipValidateXcodeVersion>\
           <MauiSkipResizetize>true</MauiSkipResizetize>\
           <TargetFrameworks>net9.0-ios</TargetFrameworks>' "$FULL_PATH"
+          
+          echo "✅ Project $CSPROJ_NAME patched successfully."
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -57,7 +59,7 @@ jobs:
             -p:TargetFrameworks=net9.0-ios
         working-directory: ${{ env.PROJECT_PATH }}
 
-      - name: 🔨 Build iOS app
+      - name: 🔨 Build and Publish iOS app
         run: |
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
@@ -67,23 +69,32 @@ jobs:
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
             -p:MtouchExtraArgs="--ignore-xcode-version" \
+            -p:PublishTrimmed=true \
             --verbosity normal
         working-directory: ${{ env.PROJECT_PATH }}
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: 📦 Package for Sideloadly
+      - name: 📦 Final Packaging for Sideloadly
+        if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
-          APP_PATH=$(find "$BUILD_PATH" -name "${{ steps.find_csproj.outputs.app_name }}.app" -type d | head -n 1)
-          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
-          chmod +x "$APP_PATH/$EXEC_NAME"
+          # Find the actual .app folder
+          APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
+          APP_NAME_EXT=$(basename "$APP_FOLDER")
+          
+          # Fix executable bit (Critical for Sideloadly)
+          EXEC_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_FOLDER/Info.plist")
+          chmod +x "$APP_FOLDER/$EXEC_NAME"
+          
+          # Zip it into IPA format
           mkdir -p "$BUILD_PATH/Payload"
-          cp -R "$APP_PATH" "$BUILD_PATH/Payload/"
-          cd "$BUILD_PATH" && zip -qry "${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa" Payload
+          cp -R "$APP_FOLDER" "$BUILD_PATH/Payload/"
+          cd "$BUILD_PATH"
+          zip -qry "${{ steps.find_csproj.outputs.app_name }}-Ready.ipa" Payload
           
       - name: 📤 Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.find_csproj.outputs.app_name }}-IPA
+          name: ${{ steps.find_csproj.outputs.app_name }}-Final-IPA
           path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
