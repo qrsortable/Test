@@ -1,131 +1,65 @@
-name: Build .NET MAUI iOS
+name: Build iOS IPA (.NET 9, iOS 16+, Sideloadly)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-ios:
     runs-on: macos-latest
-    
+
     steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Setup .NET
+
+    - name: Setup .NET 9
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
-        
-    - name: Install Xcode Command Line Tools
+        dotnet-version: 9.0.x
+
+    - name: Show Xcode info
       run: |
-        # Install Xcode command line tools (essential for iOS builds)
-        sudo xcode-select --install 2>/dev/null || true
-        
-    - name: Setup Xcode
-      run: |
-        # Check available Xcode versions
-        ls /Applications | grep Xcode
-        echo "Available Xcode versions:"
-        ls -la /Applications/*.app | grep -i xcode
-        
-        # Set to the correct Xcode path (GitHub Actions usually has it at /Applications/Xcode_16.2.app)
-        sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-        
-        # Accept Xcode license
-        sudo xcodebuild -license accept
-        
-        # Verify Xcode installation
         xcodebuild -version
-        xcrun --version
-        
-        # Verify command line tools are installed
-        pkgutil --pkg-info=com.apple.pkg.CLTools_Executables || echo "Command line tools not found"
-        
-    - name: Install MAUI Workloads
-      run: |
-        # Clean up any existing workloads first
-        dotnet workload uninstall maui-ios --skip-manifest-update 2>/dev/null || true
-        dotnet workload uninstall maui --skip-manifest-update 2>/dev/null || true
-        
-        # Install workloads
-        dotnet workload install maui
-        dotnet workload install maui-ios
-        
-        # List installed workloads
-        dotnet workload list
-        
-    - name: Verify Xcode Setup
-      run: |
-        echo "=== Checking Xcode Setup ==="
         xcode-select -p
         xcodebuild -showsdks
-        
-        # Check for required tools
-        which xcrun
-        which actool
-        which ibtool
-        
-    - name: Restore dependencies
+
+    - name: Install MAUI workload
       run: |
-        # Find the csproj file
+        dotnet workload install maui --skip-manifest-update
+        dotnet workload list
+
+    - name: Restore
+      run: |
         CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
         if [ -z "$CS_PROJ" ]; then
-          echo "❌ Error: No .csproj file found!"
-          find . -type f -name "*.csproj" | xargs -I {} echo "Found: {}"
+          echo "❌ No csproj found"
           exit 1
         fi
-        echo "✅ Found project file: $CS_PROJ"
         dotnet restore "$CS_PROJ"
-      
-    - name: Build iOS (Release)
+
+    - name: Build unsigned IPA (iOS 16+, net9.0-ios)
       run: |
-        # Find the csproj file
         CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
-        
-        # Build Release with specific settings
-        dotnet build "$CS_PROJ" \
-          -c:Release \
-          -f:net9.0-ios \
-          -p:RuntimeIdentifier=ios-arm64 \
-          -p:TreatWarningsAsErrors=false \
-          -p:SuppressXcodeTargetsWarnings=true \
-          -p:UseMonoRuntime=true \
-          -p:MtouchLink=SdkOnly \
-          -p:CreatePackage=false
-        
-    - name: Publish iOS
-      run: |
-        # Find the csproj file
-        CS_PROJ=$(find . -name "*.csproj" -type f | head -1)
-        
-        # Publish with minimal settings
+
         dotnet publish "$CS_PROJ" \
-          -c:Release \
-          -f:net9.0-ios \
+          -c Release \
+          -f net9.0-ios \
           -p:RuntimeIdentifier=ios-arm64 \
-          -p:TreatWarningsAsErrors=false \
-          -p:UseMonoRuntime=true \
+          -p:BuildIpa=true \
+          -p:EnableCodeSigning=false \
+          -p:SupportedOSPlatformVersion=16.0 \
+          -p:TargetPlatformMinVersion=16.0 \
           -p:MtouchLink=SdkOnly \
-          -p:CreatePackage=false \
-          --output ./publish/ios
-          
-    - name: List Build Output
+          -p:_SdkVersion=17.5
+
+    - name: Verify IPA output
       run: |
-        echo "=== Build Output ==="
-        find . -name "*.app" -type d | head -5
-        find . -name "*.ipa" -type f | head -5
-        ls -la ./publish/ 2>/dev/null || echo "No publish directory"
-        
-    - name: Upload build artifacts
-      if: always()
+        echo "=== IPA files ==="
+        find bin/Release/net9.0-ios/ios-arm64 -name "*.ipa" -type f || exit 1
+
+    - name: Upload IPA artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ios-build-output
+        name: ios-ipa-sideloadly
         path: |
-          **/bin/
-          **/obj/
-          ./publish/
+          bin/Release/net9.0-ios/ios-arm64/*.ipa
         retention-days: 7
