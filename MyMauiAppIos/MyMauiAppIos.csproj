@@ -40,31 +40,57 @@
         <AndroidSupportedOSVersion>21.0</AndroidSupportedOSVersion>
     </PropertyGroup>
 
-	<!-- iOS Platform Configuration - CRITICAL FOR iOS 16 COMPATIBILITY -->
+	<!-- iOS Platform Configuration - CRITICAL FOR iOS 16 COMPATIBILITY & SIDELOADING -->
 	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+		<!-- Minimum iOS version support -->
 		<SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion>15.0</TargetPlatformMinVersion>
+		
+		<!-- CRITICAL: Link entitlements file for proper iOS permissions -->
+		<CodesignEntitlements>Platforms\iOS\Entitlements.plist</CodesignEntitlements>
+		
 		<!-- Use SdkOnly linking to avoid iOS 16 compatibility issues -->
 		<MtouchLink>SdkOnly</MtouchLink>
-		<!-- Disable interpreter for better compatibility -->
+		
+		<!-- Disable interpreter for better compatibility and performance -->
 		<UseInterpreter>false</UseInterpreter>
+		
+		<!-- Additional iOS-specific settings -->
+		<MtouchEnableSGenConc>true</MtouchEnableSGenConc>
 	</PropertyGroup>
 
-	<!-- iOS Release Configuration -->
+	<!-- iOS Release Configuration - FOR SIDELOADING -->
 	<PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
+		<!-- Target architecture -->
 		<RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
+		
+		<!-- Trimming settings for smaller app size -->
 		<PublishTrimmed>true</PublishTrimmed>
 		<TrimMode>partial</TrimMode>
+		
+		<!-- Build optimizations -->
 		<OptimizePNGs>false</OptimizePNGs>
 		<UseAccessorizer>false</UseAccessorizer>
 		<ActoolComputeOnlySupportedPlatforms>true</ActoolComputeOnlySupportedPlatforms>
 		<MtouchNoFastDev>true</MtouchNoFastDev>
+		
+		<!-- Code signing settings - disabled for unsigned builds -->
 		<EnableCodeSigning>false</EnableCodeSigning>
 		<CodesignKey>-</CodesignKey>
 		<CodesignProvision>-</CodesignProvision>
+		<_DevelopmentTeam></_DevelopmentTeam>
+		
 		<!-- Reinforce minimum iOS version -->
 		<SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion>15.0</TargetPlatformMinVersion>
+		
+		<!-- Archive settings -->
+		<ArchiveOnBuild>true</ArchiveOnBuild>
+		<BuildIpa>false</BuildIpa>
+		
+		<!-- Additional release optimizations -->
+		<MtouchUseLlvm>false</MtouchUseLlvm>
+		<MtouchEnableBitcode>false</MtouchEnableBitcode>
 	</PropertyGroup>
 
 	<!-- iOS Debug Configuration -->
@@ -102,5 +128,38 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
 	</ItemGroup>
+
+	<!-- Platform-specific files -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0-ios'">
+		<!-- Ensure Entitlements.plist is included in the build -->
+		<None Include="Platforms\iOS\Entitlements.plist">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		
+		<!-- Include Info.plist -->
+		<None Include="Platforms\iOS\Info.plist">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+	
+	<!-- Build Tasks - Validation -->
+	<Target Name="ValidateEntitlements" BeforeTargets="Build" Condition="'$(TargetFramework)' == 'net9.0-ios'">
+		<Error Condition="!Exists('Platforms\iOS\Entitlements.plist')" 
+		       Text="ERROR: Entitlements.plist not found at Platforms\iOS\Entitlements.plist. This file is required for iOS sideloading!" />
+		<Message Importance="high" Text="✅ Entitlements.plist found and will be included in the build." />
+	</Target>
+	
+	<!-- Optional: Post-build task to display bundle info -->
+	<Target Name="DisplayBuildInfo" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
+		<Message Importance="high" Text="========================================" />
+		<Message Importance="high" Text="iOS Build Information:" />
+		<Message Importance="high" Text="  Bundle ID: $(ApplicationId)" />
+		<Message Importance="high" Text="  Version: $(ApplicationDisplayVersion)" />
+		<Message Importance="high" Text="  Build: $(ApplicationVersion)" />
+		<Message Importance="high" Text="  Min iOS: $(SupportedOSPlatformVersion)" />
+		<Message Importance="high" Text="  Architecture: $(RuntimeIdentifier)" />
+		<Message Importance="high" Text="  Entitlements: Platforms\iOS\Entitlements.plist" />
+		<Message Importance="high" Text="========================================" />
+	</Target>
 
 </Project>
