@@ -91,4 +91,18 @@ jobs:
       - name: 📦 Package IPA for Sideloadly
         run: |
           APP_PATH="${{ steps.verify_app.outputs.app_path }}"
-          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{
+          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
+          PAYLOAD_DIR="$IPA_DIR/Payload"
+          
+          mkdir -p "$PAYLOAD_DIR"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+          
+          IPA_NAME="${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa"
+          cd "$IPA_DIR"
+          zip -qry "$IPA_NAME" Payload -x "*.DS_Store"
+
+      - name: 📤 Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_csproj.outputs.app_name }}-iOS-Sideloadly
+          path: ${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64/*.ipa
