@@ -31,19 +31,20 @@ jobs:
           echo "csproj_name=$CSPROJ_NAME" >> $GITHUB_OUTPUT
           FULL_PATH="${{ env.PROJECT_PATH }}/$CSPROJ_NAME"
 
-          # Force single target to stop Android workload errors
+          # 1. Force single target (Stops Android workload error)
           sed -i '' 's|<TargetFrameworks>.*</TargetFrameworks>|<TargetFrameworks>net9.0-ios</TargetFrameworks>|g' "$FULL_PATH"
           
-          # Remove assets that trigger simulator-only build tasks
-          sed -i '' '/<MauiIcon/d' "$FULL_PATH"
-          sed -i '' '/<MauiSplashScreen/d' "$FULL_PATH"
-
-          # Inject hard-overrides into the PropertyGroup
+          # 2. Inject Bypass Properties
+          # We force the Static Registrar and tell the linker to SKIP UIKit validation
           sed -i '' '/<PropertyGroup>/a \
           <MtouchLink>SdkOnly</MtouchLink>\
           <MtouchUseRegistrar>Static</MtouchUseRegistrar>\
+          <MtouchExtraArgs>--ignore-xcode-version --linkskip=UIKit</MtouchExtraArgs>\
           <ValidateXcodeVersion>false</ValidateXcodeVersion>\
-          <MtouchExtraArgs>--ignore-xcode-version --linkskip=UIKit</MtouchExtraArgs>' "$FULL_PATH"
+          <MauiSkipResizetize>true</MauiSkipResizetize>' "$FULL_PATH"
+          
+          # 3. Fix the Info.plist copy warning
+          sed -i '' 's|None Include="Platforms\\iOS\\Info.plist"|BundleResource Include="Platforms\\iOS\\Info.plist" Link="Info.plist"|g' "$FULL_PATH"
 
       - name: 📦 Install MAUI workloads
         run: dotnet workload install maui-ios
@@ -54,8 +55,6 @@ jobs:
 
       - name: 🔨 Build and Publish
         run: |
-          # We use -p:_XcodeVersion to trick the SDK into thinking Xcode 26 is present
-          # We use --verbosity quiet to prevent the log buffer from hanging
           dotnet publish ${{ steps.find_csproj.outputs.csproj_name }} \
             -f:net9.0-ios \
             -c:Release \
@@ -71,13 +70,13 @@ jobs:
         env:
           MD_APPLE_SDK_ROOT: /Applications/Xcode_16.1.app
 
-      - name: 📦 IPA Creation
+      - name: 📦 Final Packaging
         if: success()
         run: |
           BUILD_PATH="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
           APP_FOLDER=$(find "$BUILD_PATH" -name "*.app" -type d | head -n 1)
           
-          # Fix the executable bit - without this, the app won't launch
+          # Fix the executable bit so the app doesn't crash on open
           chmod +x "$APP_FOLDER/$(basename "${APP_FOLDER%.app}")"
           
           mkdir -p "$BUILD_PATH/Payload"
