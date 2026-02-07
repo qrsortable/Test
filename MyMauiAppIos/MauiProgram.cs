@@ -18,15 +18,7 @@ public static class MauiProgram
 #if DEBUG
 		builder.Logging.AddDebug();
 #endif
-       AppDomain.CurrentDomain.UnhandledException += (s, e) =>
-		{
-		    Console.WriteLine(e.ExceptionObject.ToString());
-		};
-		
-		TaskScheduler.UnobservedTaskException += (s, e) =>
-		{
-		    Console.WriteLine(e.Exception.ToString());
-		};
+      
 		return builder.Build();
 	}
 }
