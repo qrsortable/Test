@@ -45,13 +45,13 @@ jobs:
       - name: Publish unsigned IPA
         run: |
           dotnet publish MyMauiAppIos.csproj \
-            -f ${{ env.TARGET_FRAMEWORK }} \
-            -c ${{ env.CONFIGURATION }} \
+            -f net9.0-ios \
+            -c Release \
             -p:RuntimeIdentifier=ios-arm64 \
             -p:ArchiveOnBuild=true \
             -p:BuildIpa=true \
             -p:EnableCodeSigning=false \
-            -p:MtouchLink=None \
+            -p:MtouchLink=SdkOnly \
             -p:MtouchNoFastDev=true \
             -p:UseInterpreter=false \
             -p:SupportedOSPlatformVersion=16.0 \
