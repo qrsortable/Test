@@ -382,7 +382,43 @@ jobs:
           echo ""
           echo "✅ App bundle verification complete!"
     
-      
+      # ============================================
+      # STEP 12: Package IPA manually (unsigned)
+      # ============================================
+      - name: 📦 Package IPA for Sideloadly
+        id: package_ipa
+        run: |
+          echo "📦 Packaging IPA manually..."
+
+          APP_PATH="${{ steps.verify_app.outputs.app_path }}"
+          IPA_DIR="${{ env.PROJECT_PATH }}/bin/${{ env.CONFIGURATION }}/${{ env.TARGET_FRAMEWORK }}/ios-arm64"
+          PAYLOAD_DIR="$IPA_DIR/Payload"
+
+          mkdir -p "$PAYLOAD_DIR"
+
+          echo "➡️ Copying app bundle into Payload/"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+
+          IPA_NAME="${{ steps.find_csproj.outputs.app_name }}-Sideloadly.ipa"
+          IPA_PATH="$IPA_DIR/$IPA_NAME"
+
+          echo "➡️ Creating IPA: $IPA_NAME"
+          cd "$IPA_DIR"
+          zip -qry "$IPA_NAME" Payload -x "*.DS_Store" "__MACOSX/*"
+
+          echo "➡️ Cleaning up Payload directory"
+          rm -rf Payload
+
+          IPA_SIZE=$(du -h "$IPA_PATH" | cut -f1)
+
+          echo "ipa_path=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "ipa_name=$IPA_NAME" >> $GITHUB_OUTPUT
+          echo "ipa_size=$IPA_SIZE" >> $GITHUB_OUTPUT
+
+          echo "✅ IPA created successfully!"
+          echo "📦 File: $IPA_NAME"
+          echo "📊 Size: $IPA_SIZE"
+          
       # ============================================
       # STEP 14: Generate Installation Instructions
       # ============================================
