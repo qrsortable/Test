@@ -61,7 +61,7 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-ios' AND '$(Configuration)' == 'Release'">
 
     <!-- DO NOT TRIM until app boots -->
-    <PublishTrimmed>false</PublishTrimmed>
+    <PublishTrimmed>true</PublishTrimmed>
 
     <!-- Avoid aggressive optimizations -->
     <MtouchUseLlvm>false</MtouchUseLlvm>
