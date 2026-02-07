@@ -67,9 +67,10 @@ jobs:
             -p:BuildIpa=true \
             -p:ArchiveOnBuild=true \
             -p:EnableCodeSigning=false \
-            -p:MtouchExtraArgs="--ignore-xcode-version --linkskip=UIKit" \
-            -p:PublishTrimmed=false \
+            -p:MtouchExtraArgs="--ignore-xcode-version" \
+            -p:PublishTrimmed=true \
             -p:MtouchLink=None \
+            -p:TrimMode=partial \
             --verbosity quiet
         working-directory: ${{ env.PROJECT_PATH }}
         env:
