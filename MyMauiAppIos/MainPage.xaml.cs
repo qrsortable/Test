@@ -9,16 +9,15 @@ public partial class MainPage : ContentPage
 		InitializeComponent();
 	}
 
-	private void OnCounterClicked(object sender, EventArgs e)
+	private async void TakePhoto(object sender, EventArgs e)
 	{
-		count++;
-
-		if (count == 1)
-			CounterBtn.Text = $"Clicked {count} time";
-		else
-			CounterBtn.Text = $"Clicked {count} times";
-
-		SemanticScreenReader.Announce(CounterBtn.Text);
+	  FileResult photo = await MediaPicker.Default.PickPhotoAsync(new MediaPickerOptions
+	  {
+	    Title = "Select your photo"
+	  });
+	                  
+	  // Here, add the code that is being explained in the next step.
+	                   
 	}
 }
 
