@@ -16,8 +16,12 @@ public partial class MainPage : ContentPage
 	    Title = "Select your photo"
 	  });
 	                  
-	  // Here, add the code that is being explained in the next step.
-	                   
+	  if (photo != null)
+		{
+		  var stream = await photo.OpenReadAsync();
+		  myImage.Source = ImageSource.FromStream(() => stream);
+		}
+			                   
 	}
 }
 
